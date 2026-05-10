@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Stock Pilot",
+    "slug": "stock-pilot",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#f6f7f9"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#f6f7f9"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
+

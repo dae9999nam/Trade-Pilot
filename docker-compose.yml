@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stock-pilot-postgres
+    environment:
+      POSTGRES_DB: stock_pilot
+      POSTGRES_USER: stock_pilot
+      POSTGRES_PASSWORD: stock_pilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - stock_pilot_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stock_pilot -d stock_pilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: stock-pilot-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://stock_pilot:stock_pilot@postgres:5432/stock_pilot
+      BROKER_MODE: paper
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+volumes:
+  stock_pilot_pg:
+
