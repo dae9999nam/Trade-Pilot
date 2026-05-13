@@ -9,7 +9,7 @@ from app import models  # noqa: F401
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Stock Pilot API", version="0.1.0")
+    app = FastAPI(title="Trade-pilot API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -27,4 +27,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

@@ -1,4 +1,4 @@
-# Stock Pilot CREON Gateway
+# Trade-pilot CREON Gateway
 
 Run this service on Windows with CREON Plus installed and logged in. Use a 32-bit Python process because CREON Plus is a 32-bit COM API.
 
@@ -21,4 +21,3 @@ BROKER_MODE=creon_gateway
 CREON_GATEWAY_URL=http://WINDOWS_IP:8765
 CREON_GATEWAY_TOKEN=change-me
 ```
-

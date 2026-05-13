@@ -1,6 +1,6 @@
-# Trade Pilot
+# Trade-pilot
 
-Trade Pilot is a multi-agent AI trading app scaffold for Korean equities. It uses:
+Trade-pilot is a multi-agent AI trading app scaffold for Korean equities. It uses:
 
 - Python FastAPI backend
 - PostgreSQL
@@ -36,6 +36,16 @@ npm install
 npm run start
 ```
 
+For the web admin dashboard:
+
+```bash
+cd admin-web
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173` and log in with `ADMIN_USERNAME` and `ADMIN_PASSWORD` from `.env`.
+
 ## API flow
 
 1. The frontend sends a decision request for a symbol.
@@ -48,6 +58,11 @@ npm run start
 4. The supervisor agent emits one structured trade decision.
 5. `RiskManager` applies deterministic limits before any order is created.
 6. If `AUTO_EXECUTE=true`, the order is sent to the active broker. Otherwise it waits for manual approval.
+
+## User-facing apps
+
+- React Native mobile app: decision request, AI agent votes, orders, approval, and positions.
+- Web admin dashboard: the same trading controls plus login, account summary, recent transactions, and recent AI decisions.
 
 ## Environment needed for live trading
 

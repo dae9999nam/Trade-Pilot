@@ -3,6 +3,7 @@
 ```mermaid
 flowchart LR
   RN["React Native App"] --> API["FastAPI Backend"]
+  Web["Web Admin Dashboard"] --> API
   API --> DB["PostgreSQL"]
   API --> Agents["LangChain Multi-Agent Orchestrator"]
   Agents --> OpenAI["OpenAI API"]
@@ -23,6 +24,7 @@ flowchart LR
 - `app.broker.creon`: CREON Plus COM adapter.
 - `app.broker.creon_gateway`: HTTP client for the Windows native gateway.
 - `gateway`: Windows native FastAPI service that owns COM calls.
+- `admin-web`: browser dashboard for login, account summary, AI decisions, orders, transactions, and holdings.
 
 ## Multi-agent roles
 

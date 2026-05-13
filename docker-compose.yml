@@ -1,17 +1,17 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: stock-pilot-postgres
+    container_name: trade-pilot-postgres
     environment:
-      POSTGRES_DB: stock_pilot
-      POSTGRES_USER: stock_pilot
-      POSTGRES_PASSWORD: stock_pilot
+      POSTGRES_DB: trade_pilot
+      POSTGRES_USER: trade_pilot
+      POSTGRES_PASSWORD: trade_pilot
     ports:
       - "5432:5432"
     volumes:
-      - stock_pilot_pg:/var/lib/postgresql/data
+      - trade_pilot_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U stock_pilot -d stock_pilot"]
+      test: ["CMD-SHELL", "pg_isready -U trade_pilot -d trade_pilot"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -19,19 +19,30 @@ services:
   backend:
     build:
       context: ./backend
-    container_name: stock-pilot-backend
+    container_name: trade-pilot-backend
     depends_on:
       postgres:
         condition: service_healthy
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://stock_pilot:stock_pilot@postgres:5432/stock_pilot
+      DATABASE_URL: postgresql+psycopg://trade_pilot:trade_pilot@postgres:5432/trade_pilot
       BROKER_MODE: paper
     ports:
       - "8000:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-volumes:
-  stock_pilot_pg:
+  admin-web:
+    build:
+      context: ./admin-web
+    container_name: trade-pilot-admin-web
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    command: npm run dev -- --host 0.0.0.0
 
+volumes:
+  trade_pilot_pg:

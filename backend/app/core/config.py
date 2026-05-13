@@ -9,9 +9,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = "development"
-    database_url: str = "postgresql+psycopg://stock_pilot:stock_pilot@localhost:5432/stock_pilot"
+    database_url: str = "postgresql+psycopg://trade_pilot:trade_pilot@localhost:5432/trade_pilot"
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.4-mini"
+    admin_username: str = "admin"
+    admin_password: str = "change-me-now"
+    admin_token_secret: str = "change-me-to-a-long-random-secret"
+    access_token_ttl_minutes: int = Field(default=720, ge=5, le=10080)
 
     broker_mode: Literal["paper", "creon", "creon_gateway"] = "paper"
     auto_execute: bool = False
@@ -30,7 +34,12 @@ class Settings(BaseSettings):
     creon_gateway_token: str | None = None
     creon_gateway_timeout_seconds: int = Field(default=10, ge=1, le=120)
 
-    cors_origins: list[str] = ["http://localhost:19006", "http://localhost:8081"]
+    cors_origins: list[str] = [
+        "http://localhost:19006",
+        "http://localhost:8081",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
     @property
     def live_trading_enabled(self) -> bool:

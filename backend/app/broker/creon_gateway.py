@@ -23,7 +23,7 @@ class CreonGatewayBroker(Broker):
     def _headers(self) -> dict[str, str]:
         if not self.settings.creon_gateway_token:
             return {}
-        return {"x-stock-pilot-token": self.settings.creon_gateway_token}
+        return {"x-trade-pilot-token": self.settings.creon_gateway_token}
 
     def get_quote(self, symbol: str) -> MarketSnapshot:
         response = self.client.get(f"/quote/{symbol}")
@@ -57,4 +57,3 @@ class CreonGatewayBroker(Broker):
             status=data["status"],
             message=data["message"],
         )
-

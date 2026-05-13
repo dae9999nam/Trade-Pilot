@@ -4,11 +4,11 @@ from config import settings
 from creon_client import CreonClient
 from schemas import OrderRequest, OrderResponse, QuoteResponse
 
-app = FastAPI(title="Stock Pilot CREON Gateway", version="0.1.0")
+app = FastAPI(title="Trade-pilot CREON Gateway", version="0.1.0")
 
 
-def require_token(x_stock_pilot_token: str | None = Header(default=None)) -> None:
-    if settings.gateway_token and x_stock_pilot_token != settings.gateway_token:
+def require_token(x_trade_pilot_token: str | None = Header(default=None)) -> None:
+    if settings.gateway_token and x_trade_pilot_token != settings.gateway_token:
         raise HTTPException(status_code=401, detail="Invalid gateway token.")
 
 
@@ -31,4 +31,3 @@ def orders(payload: OrderRequest) -> OrderResponse:
         return CreonClient().order(payload)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-

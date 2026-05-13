@@ -1,2 +1,1 @@
-"""Stock Pilot backend package."""
-
+"""Trade-pilot backend package."""

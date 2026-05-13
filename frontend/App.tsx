@@ -81,7 +81,7 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.header}>
           <View>
-            <Text style={styles.title}>Stock Pilot</Text>
+            <Text style={styles.title}>Trade-pilot</Text>
             <Text style={styles.subtitle}>{config?.openai_model ?? "loading"}</Text>
           </View>
           <Pressable style={styles.iconButton} onPress={() => refresh()}>
@@ -451,4 +451,3 @@ const styles = StyleSheet.create({
     backgroundColor: "#fee2e2"
   }
 });
-

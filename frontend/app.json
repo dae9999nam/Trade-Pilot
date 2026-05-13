@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Stock Pilot",
-    "slug": "stock-pilot",
+    "name": "Trade-pilot",
+    "slug": "trade-pilot",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -24,4 +24,3 @@
     }
   }
 }
-

@@ -1,5 +1,5 @@
 [project]
-name = "stock-pilot-backend"
+name = "trade-pilot-backend"
 version = "0.1.0"
 description = "FastAPI backend for a LangChain multi-agent stock trading app."
 requires-python = ">=3.11"
