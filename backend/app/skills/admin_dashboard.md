@@ -1,0 +1,52 @@
+# Skill: Admin Dashboard
+
+## Purpose
+
+Use this skill for admin-only account summary, transaction history, recent AI
+decisions, and dashboard-level operational status.
+
+## Authentication
+
+These endpoints require a bearer token created by `POST /api/auth/login`.
+
+Header:
+
+| Header | Value |
+| --- | --- |
+| `Authorization` | `Bearer <access_token>` |
+
+## Endpoints
+
+### `GET /api/dashboard/summary`
+
+Returns current user, broker mode, live-trading state, portfolio totals, order
+counts, recent transactions, positions, and recent decisions.
+
+Key response fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `user` | `UserProfile` | Authenticated admin user. |
+| `broker_mode` | string | Active broker mode. |
+| `live_trading_enabled` | boolean | Live-trading gate state. |
+| `auto_execute` | boolean | Auto-execution state. |
+| `total_market_value` | decimal | Sum of quantity times market price. |
+| `total_cost_basis` | decimal | Sum of quantity times average price. |
+| `unrealized_pnl` | decimal | Market value minus cost basis. |
+| `positions_count` | integer | Count of non-zero positions. |
+| `open_orders_count` | integer | Count of `PENDING_APPROVAL` and `SUBMITTED` recent orders. |
+| `filled_orders_count` | integer | Count of recent filled orders. |
+| `rejected_orders_count` | integer | Count of recent rejected orders. |
+| `recent_transactions` | array | Recent order transaction views. |
+| `positions` | array | Current positions. |
+| `recent_decisions` | array | Recent AI decision summaries. |
+
+### `GET /api/dashboard/transactions`
+
+Returns up to 100 recent order transaction views, newest first.
+
+## Safety notes
+
+- Use this skill only when admin context is available.
+- Do not request, expose, or store admin passwords in model output.
+- These endpoints are read-only.
