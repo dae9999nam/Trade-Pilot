@@ -6,7 +6,8 @@ Trade-pilot is a multi-agent AI trading app scaffold for Korean equities. It use
 - PostgreSQL
 - LangChain and OpenAI models for agent decisions
 - CREON Plus / CYBOS Plus adapter for Daishin Securities
-- React Native / Expo frontend
+- React / Vite user web frontend
+- React Native / Expo mobile frontend kept for migration continuity
 
 The app defaults to paper trading. Live trading is blocked unless both `ALLOW_LIVE_TRADING=true` and `I_UNDERSTAND_LOSS_RISK=true` are set, and the broker mode is `creon`.
 
@@ -29,6 +30,16 @@ uvicorn app.main:app --reload
 ```
 
 Open another terminal:
+
+```bash
+cd user-web
+npm install
+npm run dev
+```
+
+Open `http://localhost:5174` for the user-facing trading app.
+
+The legacy React Native app is still available while the user experience moves to web:
 
 ```bash
 cd frontend
@@ -61,8 +72,9 @@ Open `http://localhost:5173` and log in with `ADMIN_USERNAME` and `ADMIN_PASSWOR
 
 ## User-facing apps
 
-- React Native mobile app: decision request, AI agent votes, orders, approval, and positions.
-- Web admin dashboard: the same trading controls plus login, account summary, recent transactions, and recent AI decisions.
+- React web app: decision request, AI agent votes, orders, approval, and positions.
+- React Native mobile app: retained while the user-facing experience migrates to web.
+- Web admin dashboard: trading controls plus login, account summary, recent transactions, and recent AI decisions.
 
 ## Environment needed for live trading
 
