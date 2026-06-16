@@ -1,16 +1,25 @@
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.broker.factory import get_broker
-from app.core.auth import authenticate, create_access_token, require_auth
+from app.core.auth import (
+    authenticate,
+    create_authenticated_session,
+    logout_current_session,
+    require_admin,
+    register_user,
+    require_auth,
+)
 from app.core.config import settings
 from app.db.session import get_db
 from app.market.data import MarketDataService
 from app.models import Order, Position, TradeDecision
 from app.schemas import (
+    AssistantQueryRequest,
+    AssistantQueryResponse,
     DashboardSummary,
     DecisionListItem,
     DecisionRequest,
@@ -20,9 +29,11 @@ from app.schemas import (
     OrderCreate,
     OrderView,
     PositionView,
+    RegisterRequest,
     TransactionView,
     UserProfile,
 )
+from app.services.assistant_workspace import AssistantWorkspace
 from app.services.trading_engine import TradingEngine
 
 router = APIRouter()
@@ -47,10 +58,38 @@ def public_config() -> dict[str, object]:
     }
 
 
+@router.post("/auth/register", response_model=LoginResponse)
+def register(
+    payload: RegisterRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> LoginResponse:
+    if not settings.allow_user_registration:
+        raise HTTPException(status_code=403, detail="User registration is disabled.")
+    user = register_user(db, payload.email, payload.password)
+    return create_authenticated_session(db, user, response, request)
+
+
 @router.post("/auth/login", response_model=LoginResponse)
-def login(payload: LoginRequest) -> LoginResponse:
-    user = authenticate(payload.username, payload.password)
-    return LoginResponse(access_token=create_access_token(user.username), user=user)
+def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> LoginResponse:
+    user = authenticate(db, payload.username, payload.password)
+    return create_authenticated_session(db, user, response, request)
+
+
+@router.post("/auth/logout")
+def logout(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    _: UserProfile = Depends(require_auth),
+) -> dict[str, bool]:
+    return logout_current_session(db, request, response)
 
 
 @router.get("/auth/me", response_model=UserProfile)
@@ -59,16 +98,37 @@ def me(user: UserProfile = Depends(require_auth)) -> UserProfile:
 
 
 @router.post("/decisions/run", response_model=DecisionResponse)
-def run_decision(payload: DecisionRequest, db: Session = Depends(get_db)) -> DecisionResponse:
+def run_decision(
+    payload: DecisionRequest,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> DecisionResponse:
     broker = get_broker()
     snapshot = MarketDataService(broker).snapshot_for(payload)
-    engine = TradingEngine(db, broker, settings)
+    engine = TradingEngine(db, broker, settings, user.id)
     return engine.run_decision(payload, snapshot)
 
 
+@router.post("/assistant/query", response_model=AssistantQueryResponse)
+def run_assistant_query(
+    payload: AssistantQueryRequest,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> AssistantQueryResponse:
+    return AssistantWorkspace(db, get_broker(), settings, user.id).run(payload)
+
+
 @router.get("/decisions")
-def list_decisions(db: Session = Depends(get_db)) -> list[dict[str, object]]:
-    rows = db.scalars(select(TradeDecision).order_by(TradeDecision.created_at.desc()).limit(50)).all()
+def list_decisions(
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> list[dict[str, object]]:
+    rows = db.scalars(
+        select(TradeDecision)
+        .where(TradeDecision.user_id == user.id)
+        .order_by(TradeDecision.created_at.desc())
+        .limit(50)
+    ).all()
     return [
         {
             "id": row.id,
@@ -87,12 +147,23 @@ def list_decisions(db: Session = Depends(get_db)) -> list[dict[str, object]]:
 @router.get("/dashboard/summary", response_model=DashboardSummary)
 def dashboard_summary(
     db: Session = Depends(get_db),
-    user: UserProfile = Depends(require_auth),
+    user: UserProfile = Depends(require_admin),
 ) -> DashboardSummary:
-    positions = list(db.scalars(select(Position).order_by(Position.symbol.asc())).all())
-    recent_orders = list(db.scalars(select(Order).order_by(Order.created_at.desc()).limit(25)).all())
+    positions = list(
+        db.scalars(select(Position).where(Position.user_id == user.id).order_by(Position.symbol.asc())).all()
+    )
+    recent_orders = list(
+        db.scalars(
+            select(Order).where(Order.user_id == user.id).order_by(Order.created_at.desc()).limit(25)
+        ).all()
+    )
     recent_decisions = list(
-        db.scalars(select(TradeDecision).order_by(TradeDecision.created_at.desc()).limit(10)).all()
+        db.scalars(
+            select(TradeDecision)
+            .where(TradeDecision.user_id == user.id)
+            .order_by(TradeDecision.created_at.desc())
+            .limit(10)
+        ).all()
     )
 
     total_market_value = sum(
@@ -124,33 +195,55 @@ def dashboard_summary(
 @router.get("/dashboard/transactions", response_model=list[TransactionView])
 def dashboard_transactions(
     db: Session = Depends(get_db),
-    _: UserProfile = Depends(require_auth),
+    user: UserProfile = Depends(require_admin),
 ) -> list[TransactionView]:
-    orders = db.scalars(select(Order).order_by(Order.created_at.desc()).limit(100)).all()
+    orders = db.scalars(
+        select(Order).where(Order.user_id == user.id).order_by(Order.created_at.desc()).limit(100)
+    ).all()
     return [_transaction_view(order) for order in orders]
 
 
 @router.post("/orders", response_model=OrderView)
-def create_order(payload: OrderCreate, db: Session = Depends(get_db)) -> Order:
-    return TradingEngine(db, get_broker(), settings).create_manual_order(payload)
+def create_order(
+    payload: OrderCreate,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_admin),
+) -> Order:
+    return TradingEngine(db, get_broker(), settings, user.id).create_manual_order(payload)
 
 
 @router.post("/orders/{order_id}/approve", response_model=OrderView)
-def approve_order(order_id: int, db: Session = Depends(get_db)) -> Order:
+def approve_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> Order:
     try:
-        return TradingEngine(db, get_broker(), settings).approve_order(order_id)
+        return TradingEngine(db, get_broker(), settings, user.id).approve_order(order_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/orders", response_model=list[OrderView])
-def list_orders(db: Session = Depends(get_db)) -> list[Order]:
-    return list(db.scalars(select(Order).order_by(Order.created_at.desc()).limit(50)).all())
+def list_orders(
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> list[Order]:
+    return list(
+        db.scalars(
+            select(Order).where(Order.user_id == user.id).order_by(Order.created_at.desc()).limit(50)
+        ).all()
+    )
 
 
 @router.get("/positions", response_model=list[PositionView])
-def list_positions(db: Session = Depends(get_db)) -> list[Position]:
-    return list(db.scalars(select(Position).order_by(Position.symbol.asc())).all())
+def list_positions(
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> list[Position]:
+    return list(
+        db.scalars(select(Position).where(Position.user_id == user.id).order_by(Position.symbol.asc())).all()
+    )
 
 
 def _transaction_view(order: Order) -> TransactionView:
