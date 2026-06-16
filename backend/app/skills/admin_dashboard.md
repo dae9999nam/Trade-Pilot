@@ -7,13 +7,16 @@ decisions, and dashboard-level operational status.
 
 ## Authentication
 
-These endpoints require a bearer token created by `POST /api/auth/login`.
+These endpoints require an authenticated session for a user whose role is
+`admin`.
 
-Header:
+Browser clients must send cookies with `credentials: "include"`. Unsafe
+requests must also send the readable CSRF cookie value in `X-CSRF-Token`.
 
-| Header | Value |
+| Request part | Value |
 | --- | --- |
-| `Authorization` | `Bearer <access_token>` |
+| Session cookie | `trade_pilot_session` or configured `SESSION_COOKIE_NAME` |
+| CSRF header | `X-CSRF-Token: <trade_pilot_csrf>` for unsafe methods |
 
 ## Endpoints
 
@@ -47,6 +50,7 @@ Returns up to 100 recent order transaction views, newest first.
 
 ## Safety notes
 
-- Use this skill only when admin context is available.
+- Use this skill only when admin context is available. A regular `user` role
+  must receive a `403` rather than dashboard data.
 - Do not request, expose, or store admin passwords in model output.
 - These endpoints are read-only.

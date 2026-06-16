@@ -13,6 +13,19 @@ export type PublicConfig = {
   min_decision_confidence: number;
 };
 
+export type UserProfile = {
+  id: number;
+  username: string;
+  email: string;
+  role: "user" | "admin";
+};
+
+export type LoginResponse = {
+  csrf_token: string;
+  token_type: "cookie";
+  user: UserProfile;
+};
+
 export type AgentVerdict = {
   role: string;
   verdict: "bullish" | "bearish" | "neutral" | "block";
@@ -28,6 +41,22 @@ export type DecisionRequest = {
 };
 
 export type RiskStatus = "APPROVED" | "REJECTED" | "NEEDS_APPROVAL";
+export type AssistantIntent =
+  | "assistant_workspace"
+  | "trade_decision"
+  | "portfolio_review"
+  | "order_review"
+  | "decision_history"
+  | "web_research"
+  | "system_status";
+export type ArtifactType =
+  | "metric_grid"
+  | "table"
+  | "line_chart"
+  | "bar_chart"
+  | "pie_chart"
+  | "web_tab"
+  | "decision_card";
 
 export type DecisionResponse = {
   id: number;
@@ -47,6 +76,30 @@ export type DecisionResponse = {
     require_human_approval: boolean;
     agent_votes: AgentVerdict[];
   };
+};
+
+export type AssistantQueryRequest = {
+  query: string;
+  symbol?: string;
+  quantity?: number;
+  last_price?: number;
+  max_position_krw?: number;
+};
+
+export type AssistantArtifact = {
+  id: string;
+  type: ArtifactType;
+  title: string;
+  description: string | null;
+  data: Record<string, unknown>;
+};
+
+export type AssistantQueryResponse = {
+  answer: string;
+  intent: AssistantIntent;
+  artifacts: AssistantArtifact[];
+  suggested_actions: string[];
+  decision: DecisionResponse | null;
 };
 
 export type DecisionListItem = {
@@ -81,12 +134,32 @@ export type PositionView = {
 };
 
 export class ApiClient {
+  async register(email: string, password: string): Promise<LoginResponse> {
+    return this.post("/api/auth/register", { email, password });
+  }
+
+  async login(username: string, password: string): Promise<LoginResponse> {
+    return this.post("/api/auth/login", { username, password });
+  }
+
+  async logout(): Promise<{ ok: boolean }> {
+    return this.post("/api/auth/logout", {});
+  }
+
+  async me(): Promise<UserProfile> {
+    return this.get("/api/auth/me");
+  }
+
   async config(): Promise<PublicConfig> {
     return this.get("/api/config");
   }
 
   async runDecision(payload: DecisionRequest): Promise<DecisionResponse> {
     return this.post("/api/decisions/run", payload);
+  }
+
+  async queryAssistant(payload: AssistantQueryRequest): Promise<AssistantQueryResponse> {
+    return this.post("/api/assistant/query", payload);
   }
 
   async decisions(): Promise<DecisionListItem[]> {
@@ -106,15 +179,19 @@ export class ApiClient {
   }
 
   private async get<T>(path: string): Promise<T> {
-    const response = await fetch(`${API_BASE_URL}${path}`);
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      credentials: "include"
+    });
     return this.parse<T>(response);
   }
 
   private async post<T>(path: string, payload: unknown): Promise<T> {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
+      credentials: "include",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...csrfHeader()
       },
       body: JSON.stringify(payload)
     });
@@ -135,4 +212,18 @@ export class ApiClient {
     const detail = await response.text();
     throw new Error(detail || `HTTP ${response.status}`);
   }
+}
+
+function csrfHeader(): HeadersInit {
+  const token = readCookie("trade_pilot_csrf");
+  return token ? { "X-CSRF-Token": token } : {};
+}
+
+function readCookie(name: string): string | null {
+  const prefix = `${name}=`;
+  const cookie = document.cookie
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(prefix));
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
 }

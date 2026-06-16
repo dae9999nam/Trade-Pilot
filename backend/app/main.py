@@ -3,9 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.core.config import settings
-from app.db.base import Base
-from app.db.session import engine
-from app import models  # noqa: F401
 
 
 def create_app() -> FastAPI:
@@ -18,11 +15,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router, prefix="/api")
-
-    @app.on_event("startup")
-    def startup() -> None:
-        Base.metadata.create_all(bind=engine)
-
     return app
 
 

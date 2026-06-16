@@ -18,16 +18,16 @@ import {
   DecisionResponse,
   OrderView,
   PublicConfig,
-  TransactionView
+  TransactionView,
+  UserProfile
 } from "./api";
 
 type Tab = "dashboard" | "agents" | "orders" | "transactions";
 
-const tokenKey = "trade-pilot-admin-token";
-
 export default function App() {
-  const [token, setToken] = useState(() => localStorage.getItem(tokenKey));
-  const api = useMemo(() => new ApiClient(token), [token]);
+  const api = useMemo(() => new ApiClient(), []);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [bootstrapped, setBootstrapped] = useState(false);
   const [tab, setTab] = useState<Tab>("dashboard");
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -43,8 +43,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function refresh() {
-    if (!token) {
+  async function refresh(currentUser = user) {
+    if (!currentUser) {
       const nextConfig = await api.config();
       setConfig(nextConfig);
       return;
@@ -63,13 +63,30 @@ export default function App() {
   }
 
   useEffect(() => {
-    refresh().catch((nextError) => {
-      setError(String(nextError));
-      if (String(nextError).includes("401")) {
-        logout();
+    bootstrap().catch((nextError) => setError(String(nextError)));
+  }, []);
+
+  async function bootstrap() {
+    try {
+      const [nextConfig, nextUser] = await Promise.all([
+        api.config(),
+        api.me().catch(() => null)
+      ]);
+      setConfig(nextConfig);
+      if (nextUser && nextUser.role !== "admin") {
+        await api.logout().catch(() => undefined);
+        setUser(null);
+        setError("Admin access requires an admin account.");
+        return;
       }
-    });
-  }, [token]);
+      if (nextUser) {
+        await refresh(nextUser);
+      }
+      setUser(nextUser);
+    } finally {
+      setBootstrapped(true);
+    }
+  }
 
   async function runDecision() {
     setLoading(true);
@@ -123,20 +140,36 @@ export default function App() {
     }
   }
 
-  function logout() {
-    localStorage.removeItem(tokenKey);
-    setToken(null);
+  async function logout() {
+    try {
+      await api.logout();
+    } catch {
+      // Session may already be expired; clear local state either way.
+    }
+    setUser(null);
     setSummary(null);
     setOrders([]);
     setTransactions([]);
     setDecision(null);
   }
 
-  if (!token) {
-    return <LoginScreen api={api} onLogin={(nextToken) => {
-      localStorage.setItem(tokenKey, nextToken);
-      setToken(nextToken);
-    }} config={config} />;
+  if (!bootstrapped) {
+    return <main className="login-page">Loading Trade-pilot</main>;
+  }
+
+  if (!user) {
+    return (
+      <LoginScreen
+        api={api}
+        authError={error}
+        onLogin={async (nextUser) => {
+          setError(null);
+          await refresh(nextUser);
+          setUser(nextUser);
+        }}
+        config={config}
+      />
+    );
   }
 
   return (
@@ -161,7 +194,7 @@ export default function App() {
       <main className="content">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Signed in as {summary?.user.username ?? "admin"}</p>
+            <p className="eyebrow">Signed in as {user.email}</p>
             <h2>{tabTitle(tab)}</h2>
           </div>
           <div className="topbar-actions">
@@ -251,11 +284,13 @@ export default function App() {
 
 function LoginScreen({
   api,
+  authError,
   onLogin,
   config
 }: {
   api: ApiClient;
-  onLogin: (token: string) => void;
+  authError: string | null;
+  onLogin: (user: UserProfile) => Promise<void>;
   config: PublicConfig | null;
 }) {
   const [username, setUsername] = useState("admin");
@@ -269,7 +304,12 @@ function LoginScreen({
     setError(null);
     try {
       const response = await api.login(username, password);
-      onLogin(response.access_token);
+      if (response.user.role !== "admin") {
+        await api.logout().catch(() => undefined);
+        setError("Admin access requires an admin account.");
+        return;
+      }
+      await onLogin(response.user);
     } catch (nextError) {
       setError(String(nextError));
     } finally {
@@ -290,7 +330,7 @@ function LoginScreen({
           Password
           <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" />
         </label>
-        {error ? <div className="error-banner">{error}</div> : null}
+        {error || authError ? <div className="error-banner">{error ?? authError}</div> : null}
         <button className="primary full" type="submit" disabled={loading}>
           <ShieldCheck size={17} />
           {loading ? "Signing in" : "Sign in"}

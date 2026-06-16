@@ -18,10 +18,11 @@ from app.services.risk import RiskManager
 
 
 class TradingEngine:
-    def __init__(self, db: Session, broker: Broker, settings: Settings) -> None:
+    def __init__(self, db: Session, broker: Broker, settings: Settings, user_id: int) -> None:
         self.db = db
         self.broker = broker
         self.settings = settings
+        self.user_id = user_id
         self.orchestrator = AgentOrchestrator(settings)
         self.risk = RiskManager(settings)
 
@@ -30,6 +31,7 @@ class TradingEngine:
         risk_result = self.risk.evaluate(decision, snapshot, request.max_position_krw)
 
         agent_run = AgentRun(
+            user_id=self.user_id,
             symbol=request.symbol.upper(),
             request_payload=request.model_dump(mode="json"),
             agent_payload=decision.model_dump(mode="json"),
@@ -37,6 +39,7 @@ class TradingEngine:
         self.db.add(agent_run)
 
         decision_row = TradeDecision(
+            user_id=self.user_id,
             symbol=decision.symbol,
             action=decision.action,
             quantity=decision.quantity,
@@ -69,6 +72,7 @@ class TradingEngine:
 
     def create_manual_order(self, order_create: OrderCreate) -> Order:
         order = Order(
+            user_id=self.user_id,
             mode=self.settings.broker_mode,
             symbol=order_create.symbol.upper(),
             side=order_create.side,
@@ -84,7 +88,9 @@ class TradingEngine:
         return order
 
     def approve_order(self, order_id: int) -> Order:
-        order = self.db.get(Order, order_id)
+        order = self.db.scalar(
+            select(Order).where(Order.id == order_id, Order.user_id == self.user_id)
+        )
         if order is None:
             raise ValueError("Order not found.")
         if order.status not in {"PENDING_APPROVAL", "REJECTED"}:
@@ -112,6 +118,7 @@ class TradingEngine:
 
     def _create_order_from_decision(self, decision_id: int, decision: TradeDecisionPayload) -> Order:
         order = Order(
+            user_id=self.user_id,
             decision_id=decision_id,
             mode=self.settings.broker_mode,
             symbol=decision.symbol,
@@ -131,11 +138,14 @@ class TradingEngine:
         price = Decimal(order.limit_price or Decimal("0"))
         if price == 0:
             price = Decimal("1")
-        position = self.db.scalar(select(Position).where(Position.symbol == order.symbol))
+        position = self.db.scalar(
+            select(Position).where(Position.user_id == self.user_id, Position.symbol == order.symbol)
+        )
         signed_quantity = order.quantity if order.side == "BUY" else -order.quantity
 
         if position is None:
             position = Position(
+                user_id=self.user_id,
                 symbol=order.symbol,
                 quantity=signed_quantity,
                 avg_price=price,
@@ -155,4 +165,3 @@ class TradingEngine:
         position.quantity = new_quantity
         position.avg_price = (current_cost + added_cost) / Decimal(new_quantity)
         position.market_price = price
-

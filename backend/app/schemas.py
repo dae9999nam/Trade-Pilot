@@ -1,25 +1,42 @@
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Action = Literal["BUY", "SELL", "HOLD"]
 RiskStatus = Literal["APPROVED", "REJECTED", "NEEDS_APPROVAL"]
+UserRole = Literal["user", "admin"]
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=1, max_length=320)
     password: str = Field(min_length=1, max_length=256)
 
 
+class RegisterRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=12, max_length=256)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        local_part, separator, domain = normalized.partition("@")
+        if not separator or not local_part or "." not in domain or domain.startswith("."):
+            raise ValueError("A valid email address is required.")
+        return normalized
+
+
 class UserProfile(BaseModel):
+    id: int
     username: str
-    role: Literal["admin"]
+    email: str
+    role: UserRole
 
 
 class LoginResponse(BaseModel):
-    access_token: str
-    token_type: Literal["bearer"] = "bearer"
+    csrf_token: str
+    token_type: Literal["cookie"] = "cookie"
     user: UserProfile
 
 
@@ -75,6 +92,50 @@ class DecisionResponse(BaseModel):
     risk_reasons: list[str]
     decision: TradeDecisionPayload
     order_id: int | None = None
+
+
+AssistantIntent = Literal[
+    "assistant_workspace",
+    "trade_decision",
+    "portfolio_review",
+    "order_review",
+    "decision_history",
+    "web_research",
+    "system_status",
+]
+ArtifactType = Literal[
+    "metric_grid",
+    "table",
+    "line_chart",
+    "bar_chart",
+    "pie_chart",
+    "web_tab",
+    "decision_card",
+]
+
+
+class AssistantQueryRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+    symbol: str | None = Field(default=None, min_length=2, max_length=16)
+    quantity: int = Field(default=1, ge=0)
+    max_position_krw: int | None = Field(default=None, ge=0)
+    last_price: Decimal | None = Field(default=None, ge=0)
+
+
+class AssistantArtifact(BaseModel):
+    id: str
+    type: ArtifactType
+    title: str
+    description: str | None = None
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class AssistantQueryResponse(BaseModel):
+    answer: str
+    intent: AssistantIntent
+    artifacts: list[AssistantArtifact] = Field(default_factory=list)
+    suggested_actions: list[str] = Field(default_factory=list)
+    decision: DecisionResponse | None = None
 
 
 class OrderCreate(BaseModel):

@@ -1,8 +1,10 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export type UserProfile = {
+  id: number;
   username: string;
-  role: "admin";
+  email: string;
+  role: "user" | "admin";
 };
 
 export type PublicConfig = {
@@ -111,76 +113,78 @@ export type DashboardSummary = {
 };
 
 export class ApiClient {
-  constructor(private token: string | null) {}
+  async login(username: string, password: string): Promise<{ csrf_token: string; user: UserProfile }> {
+    return this.post("/api/auth/login", { username, password });
+  }
 
-  async login(username: string, password: string): Promise<{ access_token: string; user: UserProfile }> {
-    return this.post("/api/auth/login", { username, password }, false);
+  async logout(): Promise<{ ok: boolean }> {
+    return this.post("/api/auth/logout", {});
   }
 
   async me(): Promise<UserProfile> {
-    return this.get("/api/auth/me", true);
+    return this.get("/api/auth/me");
   }
 
   async config(): Promise<PublicConfig> {
-    return this.get("/api/config", false);
+    return this.get("/api/config");
   }
 
   async summary(): Promise<DashboardSummary> {
-    return this.get("/api/dashboard/summary", true);
+    return this.get("/api/dashboard/summary");
   }
 
   async transactions(): Promise<TransactionView[]> {
-    return this.get("/api/dashboard/transactions", true);
+    return this.get("/api/dashboard/transactions");
   }
 
   async runDecision(payload: DecisionRequest): Promise<DecisionResponse> {
-    return this.post("/api/decisions/run", payload, true);
+    return this.post("/api/decisions/run", payload);
   }
 
   async orders(): Promise<OrderView[]> {
-    return this.get("/api/orders", true);
+    return this.get("/api/orders");
   }
 
   async createOrder(payload: OrderCreate): Promise<OrderView> {
-    return this.post("/api/orders", payload, true);
+    return this.post("/api/orders", payload);
   }
 
   async approveOrder(orderId: number): Promise<OrderView> {
-    return this.post(`/api/orders/${orderId}/approve`, {}, true);
+    return this.post(`/api/orders/${orderId}/approve`, {});
   }
 
   async positions(): Promise<PositionView[]> {
-    return this.get("/api/positions", true);
+    return this.get("/api/positions");
   }
 
-  private async get<T>(path: string, auth: boolean): Promise<T> {
+  private async get<T>(path: string): Promise<T> {
     const response = await fetch(`${API_BASE_URL}${path}`, {
-      headers: this.headers(auth)
+      credentials: "include"
     });
     return this.parse<T>(response);
   }
 
-  private async post<T>(path: string, payload: unknown, auth: boolean): Promise<T> {
+  private async post<T>(path: string, payload: unknown): Promise<T> {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...this.headers(auth)
+        ...csrfHeader()
       },
       body: JSON.stringify(payload)
     });
     return this.parse<T>(response);
   }
 
-  private headers(auth: boolean): HeadersInit {
-    if (!auth || !this.token) {
-      return {};
-    }
-    return { Authorization: `Bearer ${this.token}` };
-  }
-
   private async parse<T>(response: Response): Promise<T> {
     if (!response.ok) {
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const payload = await response.json();
+        throw new Error(payload.detail ?? `HTTP ${response.status}`);
+      }
+
       const detail = await response.text();
       throw new Error(detail || `HTTP ${response.status}`);
     }
@@ -188,3 +192,16 @@ export class ApiClient {
   }
 }
 
+function csrfHeader(): HeadersInit {
+  const token = readCookie("trade_pilot_csrf");
+  return token ? { "X-CSRF-Token": token } : {};
+}
+
+function readCookie(name: string): string | null {
+  const prefix = `${name}=`;
+  const cookie = document.cookie
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(prefix));
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
+}

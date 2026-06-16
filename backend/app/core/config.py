@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,8 +14,13 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.4-mini"
     admin_username: str = "admin"
     admin_password: str = "change-me-now"
-    admin_token_secret: str = "change-me-to-a-long-random-secret"
-    access_token_ttl_minutes: int = Field(default=720, ge=5, le=10080)
+    session_ttl_minutes: int = Field(default=720, ge=5, le=10080)
+    password_hash_iterations: int = Field(default=390_000, ge=100_000)
+    session_cookie_name: str = "trade_pilot_session"
+    csrf_cookie_name: str = "trade_pilot_csrf"
+    auth_cookie_secure: bool = False
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    allow_user_registration: bool = True
 
     broker_mode: Literal["paper", "creon", "creon_gateway"] = "paper"
     auto_execute: bool = False
@@ -39,6 +44,8 @@ class Settings(BaseSettings):
         "http://localhost:8081",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
     ]
 
     @property
@@ -48,6 +55,17 @@ class Settings(BaseSettings):
             and self.allow_live_trading
             and self.i_understand_loss_risk
         )
+
+    @model_validator(mode="after")
+    def validate_auth_settings(self) -> "Settings":
+        if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
+            raise ValueError("AUTH_COOKIE_SAMESITE=none requires AUTH_COOKIE_SECURE=true.")
+        if self.app_env == "production":
+            if self.admin_password == "change-me-now":
+                raise ValueError("ADMIN_PASSWORD must be changed in production.")
+            if not self.auth_cookie_secure:
+                raise ValueError("AUTH_COOKIE_SECURE=true is required in production.")
+        return self
 
 
 @lru_cache
