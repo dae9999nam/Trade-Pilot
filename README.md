@@ -193,6 +193,16 @@ docker compose down
 | Admin web | `cd admin-web`<br/>`npm install`<br/>`npm run dev` |
 | React Native app | `cd frontend`<br/>`npm install`<br/>`npm run start` |
 
+## GitHub Publication Notes
+
+| Area | Rule |
+| --- | --- |
+| Public documentation | The root `README.md` is the GitHub-facing overview and architecture document. |
+| Admin notes | `admin-web/README.md` is local-only and ignored by git. Keep environment-specific admin runbooks there instead of publishing them. |
+| Secrets | Do not commit `.env`, brokerage account numbers, gateway tokens, OpenAI keys, or production admin credentials. |
+| Production hosting | Build frontend static assets and serve them behind HTTPS; do not use Vite dev servers as production hosting. |
+| Production cookies | Set `APP_ENV=production`, `AUTH_COOKIE_SECURE=true`, and a non-default `ADMIN_PASSWORD`. |
+
 ## Key API Surface
 
 | Method | Path | Used by | Description |
