@@ -1,15 +1,30 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = BACKEND_DIR.parent
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(PROJECT_ROOT / ".env", BACKEND_DIR / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     app_env: str = "development"
     database_url: str = "postgresql+psycopg://trade_pilot:trade_pilot@localhost:5432/trade_pilot"
+    backend_host: str = "127.0.0.1"
+    backend_port: int = Field(default=8000, ge=1, le=65535)
+    backend_base_url: str = "http://localhost:8000"
+    user_web_host: str = "127.0.0.1"
+    user_web_port: int = Field(default=5174, ge=1, le=65535)
+    admin_web_host: str = "127.0.0.1"
+    admin_web_port: int = Field(default=5173, ge=1, le=65535)
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.4-mini"
     admin_username: str = "admin"
@@ -55,6 +70,17 @@ class Settings(BaseSettings):
             and self.allow_live_trading
             and self.i_understand_loss_risk
         )
+
+    @property
+    def resolved_cors_origins(self) -> list[str]:
+        origins = [
+            *self.cors_origins,
+            f"http://localhost:{self.user_web_port}",
+            f"http://127.0.0.1:{self.user_web_port}",
+            f"http://localhost:{self.admin_web_port}",
+            f"http://127.0.0.1:{self.admin_web_port}",
+        ]
+        return list(dict.fromkeys(origins))
 
     @model_validator(mode="after")
     def validate_auth_settings(self) -> "Settings":

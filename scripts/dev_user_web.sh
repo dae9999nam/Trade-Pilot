@@ -9,7 +9,5 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   set +a
 fi
 
-cd "$ROOT_DIR/backend"
-source .venv/bin/activate
-alembic upgrade head
-uvicorn app.main:app --reload --host "${BACKEND_HOST:-127.0.0.1}" --port "${BACKEND_PORT:-8000}"
+cd "$ROOT_DIR/user-web"
+npm run dev -- --host "${USER_WEB_HOST:-127.0.0.1}" --port "${USER_WEB_PORT:-5174}"
