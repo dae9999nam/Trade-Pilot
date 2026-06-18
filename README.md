@@ -335,6 +335,10 @@ override Docker defaults.
 | `CREON_GATEWAY_TOKEN`           | unset                                                                     | Optional shared token sent as `x-trade-pilot-token`.                                                                                            |
 | `CREON_GATEWAY_TIMEOUT_SECONDS` | `10`                                                                      | HTTP timeout for gateway calls.                                                                                                                 |
 
+For live CREON mode, start from [.env.creon.example](./.env.creon.example).
+Keep `AUTO_EXECUTE=false` until the gateway, account, quote path, order path,
+and manual approval flow have been tested with intentionally small limits.
+
 ## Safety Boundaries
 
 | Boundary                      | Enforcement                                                                                                                             |
@@ -372,7 +376,30 @@ CREON Plus / CYBOS Plus is a Windows COM API. Direct live trading requires:
 | CREON Plus installed and logged in | Quote/order COM objects depend on the local logged-in session.        |
 | Explicit live gates                | Backend refuses live mode unless loss-risk approvals are enabled.     |
 
-Run the gateway on Windows:
+### Recommended Live Topology
+
+The recommended production shape is:
+
+| Process | Host | Reason |
+| --- | --- | --- |
+| `postgres`, `backend`, `user-web`, `admin-web` | Docker Compose on the dev/server machine | Ordinary app services. |
+| `gateway` | Windows host or Windows VM with CREON Plus installed and logged in | Owns the 32-bit COM session and live broker boundary. |
+
+This keeps the main app containerized while the Windows-only COM session stays
+on the machine where CREON Plus actually runs.
+
+### What Docker Compose Does Not Do
+
+`docker compose up --build -d` cannot create a Windows VM, install CREON Plus,
+complete broker security-module setup, or maintain an interactive HTS login
+session. Compose defines and starts Docker containers; VM lifecycle and Windows
+desktop app installation must be handled outside Compose.
+
+Use [infra/windows/setup-creon-gateway.ps1](./infra/windows/setup-creon-gateway.ps1)
+inside an existing Windows host or Windows VM to prepare the Python gateway
+runtime after CREON Plus has been installed from the broker-approved installer.
+
+Run the gateway directly on Windows:
 
 ```powershell
 cd gateway
@@ -380,14 +407,25 @@ py -3.11-32 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 $env:GATEWAY_TOKEN="change-me"
-$env:CREON_ACCOUNT_NO="123456789"
+$env:CREON_ACCOUNT_NO="replace-with-account-number"
 $env:CREON_GOODS_CODE="01"
 $env:ALLOW_LIVE_TRADING="true"
 $env:I_UNDERSTAND_LOSS_RISK="true"
 uvicorn main:app --host 0.0.0.0 --port 8765
 ```
 
-Point the backend at the gateway:
+Or use the Windows helper from the repository root:
+
+```powershell
+.\infra\windows\setup-creon-gateway.ps1 `
+  -GatewayToken "change-me" `
+  -CreonAccountNo "replace-with-account-number" `
+  -AllowLiveTrading `
+  -UnderstandLossRisk
+.\gateway\run-creon-gateway.ps1
+```
+
+Then point the Docker backend at the gateway:
 
 ```bash
 BROKER_MODE=creon_gateway
@@ -396,6 +434,45 @@ CREON_GATEWAY_TOKEN=change-me
 ALLOW_LIVE_TRADING=true
 I_UNDERSTAND_LOSS_RISK=true
 ```
+
+Run the app stack with the CREON override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.creon-gateway.yml up --build -d
+```
+
+Or merge the values from `.env.creon.example` into your local `.env`, fill the
+values, and keep `COMPOSE_FILE=docker-compose.yml:docker-compose.creon-gateway.yml`
+so the same plain command loads the override:
+
+```bash
+# edit .env; do not overwrite existing secrets
+# set CREON_GATEWAY_URL, token, account, and live gates intentionally
+docker compose up --build -d
+```
+
+### Windows Container Image
+
+The repo also includes an experimental Windows-container gateway image:
+
+```powershell
+docker compose -f docker-compose.windows.yml up --build -d creon-gateway
+```
+
+If you want that Windows gateway file to be the default for a Windows gateway
+machine, set `COMPOSE_FILE=docker-compose.windows.yml` in that machine's
+environment before running:
+
+```powershell
+docker compose up --build -d
+```
+
+Use this only on a Windows host with Docker Desktop switched to Windows
+containers. It is not supported from macOS Docker Desktop. A Windows container
+does not automatically inherit the host's CREON Plus installation, COM
+registration, logged-in HTS session, or trade-password state. In practice, the
+direct Windows host gateway above is the safer and more predictable path for
+actual CREON connectivity.
 
 ## Validation
 
@@ -408,6 +485,8 @@ I_UNDERSTAND_LOSS_RISK=true
 | Admin web typecheck                | `npm run typecheck --prefix admin-web`                                                                                                                                                                                                                                                                        |
 | Admin web build                    | `npm run build --prefix admin-web`                                                                                                                                                                                                                                                                            |
 | Backend health                     | `curl http://127.0.0.1:8000/api/health`                                                                                                                                                                                                                                                                       |
+| CREON Compose config               | `ALLOW_LIVE_TRADING=true I_UNDERSTAND_LOSS_RISK=true CREON_GATEWAY_URL=http://127.0.0.1:8765 CREON_GATEWAY_TOKEN=test docker compose -f docker-compose.yml -f docker-compose.creon-gateway.yml config --quiet`                                                                                              |
+| Windows gateway Compose config     | `CREON_GATEWAY_TOKEN=test docker compose -f docker-compose.windows.yml config --quiet`                                                                                                                                                                                                                         |
 | Authenticated assistant smoke test | Register or log in through `user-web`, then run a query from the browser so cookies and CSRF are sent automatically.                                                                                                                                                                                          |
 
 Trade-pilot is engineering scaffolding, not financial advice. Test in paper mode

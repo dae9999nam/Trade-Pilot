@@ -1,0 +1,16 @@
+services:
+  creon-gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile.windows
+    image: trade-pilot-creon-gateway:windows
+    platform: windows/amd64
+    isolation: ${WINDOWS_CONTAINER_ISOLATION:-process}
+    environment:
+      GATEWAY_TOKEN: ${CREON_GATEWAY_TOKEN:?Set CREON_GATEWAY_TOKEN before starting the Windows gateway}
+      CREON_ACCOUNT_NO: ${CREON_ACCOUNT_NO:-}
+      CREON_GOODS_CODE: ${CREON_GOODS_CODE:-01}
+      ALLOW_LIVE_TRADING: ${ALLOW_LIVE_TRADING:-false}
+      I_UNDERSTAND_LOSS_RISK: ${I_UNDERSTAND_LOSS_RISK:-false}
+    ports:
+      - "${CREON_GATEWAY_PORT:-8765}:8765"

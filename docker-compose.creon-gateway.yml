@@ -1,0 +1,12 @@
+services:
+  backend:
+    environment:
+      BROKER_MODE: creon_gateway
+      AUTO_EXECUTE: ${AUTO_EXECUTE:-false}
+      ALLOW_LIVE_TRADING: ${ALLOW_LIVE_TRADING:?Set ALLOW_LIVE_TRADING=true only when you are ready for live CREON access}
+      I_UNDERSTAND_LOSS_RISK: ${I_UNDERSTAND_LOSS_RISK:?Set I_UNDERSTAND_LOSS_RISK=true only after accepting live trading risk}
+      CREON_GATEWAY_URL: ${CREON_GATEWAY_URL:?Set CREON_GATEWAY_URL to the Windows CREON gateway URL}
+      CREON_GATEWAY_TOKEN: ${CREON_GATEWAY_TOKEN:?Set CREON_GATEWAY_TOKEN to the gateway shared token}
+      CREON_GATEWAY_TIMEOUT_SECONDS: ${CREON_GATEWAY_TIMEOUT_SECONDS:-10}
+      CREON_ACCOUNT_NO: ${CREON_ACCOUNT_NO:-}
+      CREON_GOODS_CODE: ${CREON_GOODS_CODE:-01}

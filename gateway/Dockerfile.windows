@@ -1,0 +1,28 @@
+# escape=`
+
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+SHELL ["powershell", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "$ErrorActionPreference = 'Stop';"]
+
+ARG PYTHON_VERSION=3.11.9
+ENV PYTHON_VERSION=${PYTHON_VERSION}
+
+RUN Invoke-WebRequest `
+      -Uri "https://www.python.org/ftp/python/$env:PYTHON_VERSION/python-$env:PYTHON_VERSION.exe" `
+      -OutFile "C:\\python-installer.exe"; `
+    Start-Process "C:\\python-installer.exe" `
+      -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0 TargetDir=C:\\Python311-32" `
+      -Wait; `
+    Remove-Item "C:\\python-installer.exe"; `
+    C:\\Python311-32\\python.exe -m pip install --upgrade pip
+
+WORKDIR C:\\app
+
+COPY requirements.txt .\\
+RUN C:\\Python311-32\\python.exe -m pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8765
+
+CMD ["C:\\Python311-32\\python.exe", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8765"]

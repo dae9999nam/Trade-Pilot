@@ -50,6 +50,11 @@ order submission path.
 ## Safety notes
 
 - Default broker mode is `paper`.
-- Docker cannot create the Windows COM environment required by CREON Plus.
-- Prefer `creon_gateway` when the backend runs on macOS/Linux and live trading
-  must be delegated to a Windows host.
+- The default Docker Compose stack intentionally forces `BROKER_MODE=paper`.
+- Use `docker-compose.creon-gateway.yml` only when a Windows CREON gateway is
+  already running and live-trading gates are explicitly enabled.
+- A Windows container image is only a gateway packaging scaffold. It does not
+  automatically inherit the host CREON Plus COM registration or logged-in HTS
+  session.
+- Prefer the direct Windows host gateway process when the backend runs on
+  macOS/Linux and live trading must be delegated to a Windows host.

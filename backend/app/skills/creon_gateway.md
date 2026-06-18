@@ -16,6 +16,15 @@ The main backend uses this service when `BROKER_MODE=creon_gateway`.
 | Environment gates | `ALLOW_LIVE_TRADING=true` and `I_UNDERSTAND_LOSS_RISK=true` |
 | Account | `CREON_ACCOUNT_NO` configured for orders |
 
+## Docker modes
+
+| Mode | Command | Notes |
+| --- | --- | --- |
+| Recommended gateway process | `uvicorn main:app --host 0.0.0.0 --port 8765` on Windows | Uses the Windows user's installed and logged-in CREON Plus session. |
+| Windows helper setup | `.\infra\windows\setup-creon-gateway.ps1` | Prepares 32-bit Python gateway runtime inside an existing Windows host/VM; does not create the VM or automate broker login. |
+| Main app with live gateway | `docker compose -f docker-compose.yml -f docker-compose.creon-gateway.yml up --build -d` | Backend remains containerized and calls the external Windows gateway. |
+| Experimental Windows container gateway | `docker compose -f docker-compose.windows.yml up --build -d creon-gateway` | Requires Windows containers. Does not automatically inherit host COM/login state. |
+
 ## Authentication
 
 If `GATEWAY_TOKEN` is configured, requests to quote and order endpoints must
