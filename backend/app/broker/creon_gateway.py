@@ -27,7 +27,7 @@ class CreonGatewayBroker(Broker):
 
     def get_quote(self, symbol: str) -> MarketSnapshot:
         response = self.client.get(f"/quote/{symbol}")
-        response.raise_for_status()
+        self._raise_for_gateway_error(response)
         data = response.json()
         return MarketSnapshot(
             symbol=data["symbol"],
@@ -50,10 +50,29 @@ class CreonGatewayBroker(Broker):
                 "limit_price": str(order.limit_price) if order.limit_price is not None else None,
             },
         )
-        response.raise_for_status()
+        self._raise_for_gateway_error(response)
         data = response.json()
         return BrokerOrderResult(
             broker_order_id=data.get("broker_order_id"),
             status=data["status"],
             message=data["message"],
         )
+
+    def _raise_for_gateway_error(self, response: httpx.Response) -> None:
+        if response.is_success:
+            return
+        try:
+            payload = response.json()
+        except ValueError:
+            response.raise_for_status()
+
+        detail = payload.get("detail") if isinstance(payload, dict) else None
+        if isinstance(detail, dict):
+            code = detail.get("code", "creon_gateway_error")
+            message = detail.get("message", response.text)
+            request_id = detail.get("request_id")
+            suffix = f" request_id={request_id}" if request_id else ""
+            raise RuntimeError(f"CREON gateway {code}: {message}{suffix}")
+        if isinstance(detail, str):
+            raise RuntimeError(f"CREON gateway error: {detail}")
+        response.raise_for_status()

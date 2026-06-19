@@ -22,6 +22,37 @@ CREON_GATEWAY_URL=http://WINDOWS_IP:8765
 CREON_GATEWAY_TOKEN=change-me
 ```
 
+## Runtime checks
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /health` | no | Lightweight process and runtime status. Does not touch CREON COM. |
+| `GET /ready` | no | Full readiness check. Verifies Windows/32-bit Python/pywin32/live gates/account/token and CREON connection. |
+| `GET /quote/{symbol}` | token if configured | Serialized CREON quote request with bounded retry. |
+| `POST /orders` | token if configured | Serialized CREON order request. Orders are not automatically retried. |
+
+When live trading is enabled, `GATEWAY_TOKEN` is required for quote and order
+requests. Gateway errors use a structured `detail` payload:
+
+```json
+{
+  "detail": {
+    "code": "creon_com_busy",
+    "message": "CREON COM worker is busy. Try again after the current request finishes.",
+    "retryable": true,
+    "request_id": "..."
+  }
+}
+```
+
+Useful gateway tuning variables:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `CREON_QUOTE_RETRY_COUNT` | `1` | Quote retries after retryable CREON failures. |
+| `CREON_QUOTE_RETRY_BACKOFF_SECONDS` | `0.25` | Delay between quote retries. |
+| `CREON_COM_LOCK_TIMEOUT_SECONDS` | `15` | Max wait for the process-wide COM lock. |
+
 From the repository root on Windows, this helper prepares the 32-bit Python
 gateway runtime and writes `gateway\.env`:
 

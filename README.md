@@ -1,493 +1,239 @@
 # Trade-pilot
 
-Trade-pilot is a Korean-equity trading assistant scaffold. It combines a
-FastAPI backend, PostgreSQL, OpenAI/LangChain agent workflows, deterministic
-risk gates, paper trading, optional CREON Plus integration, an analyst-style
-React web workspace, an admin dashboard, and a retained React Native app.
+Trade-pilot is a full-stack trading assistant for Korean equities. It combines
+an analyst-style React web workspace, a FastAPI backend, OpenAI-powered agent
+workflows, deterministic risk controls, paper trading, and optional CREON
+Plus integration through a Windows gateway.
 
-The default mode is paper trading. Live trading is blocked unless explicit
-environment gates are enabled and the active broker is `creon` or
-`creon_gateway`.
+The project is designed as trading infrastructure scaffolding. It is not
+financial advice, and live brokerage access is disabled by default.
 
-## System Overview
+## What It Does
 
-| Area                | Component                                     | Responsibility                                                                                                                                                                                                                                     |
-| ------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| User workspace      | `user-web`                                    | Query-centered analyst UI at `http://localhost:5174`. Sends natural-language requests to `/api/assistant/query` and renders text, tables, metric grids, line charts, bar charts, pie charts, decision cards, and browser-style research artifacts. |
-| Admin console       | `admin-web`                                   | Admin-role dashboard at `http://localhost:5173` for summary, positions, transactions, recent decisions, manual orders, and order approval.                                                                                                         |
-| Legacy mobile       | `frontend`                                    | React Native / Expo app retained while the user-facing experience migrates to web.                                                                                                                                                                 |
-| API backend         | `backend/app/api/routes.py`                   | FastAPI routes under `/api` for assistant queries, AI decisions, orders, positions, cookie-session auth, and dashboard data.                                                                                                                       |
-| Assistant planner   | `backend/app/services/assistant_workspace.py` | Interprets a user request as a complete objective, selects all needed SKILLS/capabilities, runs multiple capabilities when needed, and explains missing skills instead of forcing one intent.                                                      |
-| Skill catalog       | `backend/app/skills/*.md`                     | Markdown skill cards injected into prompts. They describe endpoints, variables, required parameters, safety rules, broker behavior, and missing capability boundaries.                                                                             |
-| Agent orchestration | `backend/app/services/agent_orchestrator.py`  | Runs specialist agents and a supervisor for trading decisions. Uses SKILLS as prompt ground truth and avoids inventing APIs or fields.                                                                                                             |
-| Trading engine      | `backend/app/services/trading_engine.py`      | Persists agent runs and trade decisions, runs risk checks, creates orders, and handles order approval.                                                                                                                                             |
-| Risk gate           | `backend/app/services/risk.py`                | Deterministic boundary for confidence, quantity, notional, position limit, human approval, and live-trading gates.                                                                                                                                 |
-| Market data         | `backend/app/market/data.py`                  | Builds `MarketSnapshot` from request-provided `last_price` or active broker quote.                                                                                                                                                                 |
-| Broker adapters     | `backend/app/broker/*`                        | Paper broker, direct CREON COM broker, and HTTP CREON gateway broker.                                                                                                                                                                              |
-| Database            | PostgreSQL                                    | Stores users, server-side sessions, agent runs, trade decisions, orders, and positions.                                                                                                                                                            |
-| CREON gateway       | `gateway`                                     | Windows-native FastAPI service for CREON Plus COM quote and order calls.                                                                                                                                                                           |
+| Area                   | Functionality                                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AI assistant workspace | Users ask natural-language trading or portfolio questions and receive structured responses, not just chat text.                                      |
+| Multi-artifact answers | Responses can include text, metrics, tables, line charts, bar charts, pie charts, decision cards, and browser-style research tabs.                   |
+| Skill-aware planning   | The assistant inspects Markdown skill cards before choosing which internal capability to use. Missing capabilities are reported instead of invented. |
+| AI trade decisions     | Specialist agents and a supervisor produce structured BUY, SELL, or HOLD decisions.                                                                  |
+| Risk controls          | Deterministic checks enforce confidence thresholds, position limits, order size limits, human approval, and live-trading gates.                      |
+| Paper trading          | The default broker is a safe paper adapter for local testing.                                                                                        |
+| CREON Plus integration | Optional Windows-native gateway can bridge to CREON Plus / CYBOS Plus COM APIs.                                                                      |
+| Authenticated web app  | Browser clients use server-side sessions, HttpOnly cookies, CSRF protection, and user-scoped data.                                                   |
+| Admin console          | Admin users can inspect dashboard summaries, positions, recent decisions, transactions, and orders.                                                  |
+
+## Applications
+
+| App           | Path        | Purpose                                                                         |
+| ------------- | ----------- | ------------------------------------------------------------------------------- |
+| User web      | `user-web`  | Main analyst workspace for user-facing requests.                                |
+| Admin web     | `admin-web` | Admin dashboard for operations, review, and manual order flow.                  |
+| Backend       | `backend`   | FastAPI API, auth, agent orchestration, risk, persistence, and broker adapters. |
+| CREON gateway | `gateway`   | Windows-native FastAPI gateway that owns CREON Plus COM calls.                  |
+| Legacy mobile | `frontend`  | React Native / Expo app retained while the user-facing experience moves to web. |
 
 ## System Architecture
 
 ```mermaid
 flowchart LR
-  User["User"] --> UserWeb["user-web<br/>Analyst Workspace"]
-  Admin["Admin"] --> AdminWeb["admin-web<br/>Control Dashboard"]
-  Mobile["Legacy mobile user"] --> MobileApp["frontend<br/>React Native / Expo"]
+  User["User"] --> UserWeb["user-web<br/>React analyst workspace"]
+  Admin["Admin"] --> AdminWeb["admin-web<br/>Operations dashboard"]
+  Mobile["Legacy mobile app"] --> MobileApp["frontend<br/>React Native / Expo"]
 
-  UserWeb --> API["FastAPI Backend<br/>/api"]
+  UserWeb --> API["FastAPI backend<br/>/api"]
   AdminWeb --> API
   MobileApp --> API
 
-  API --> Assistant["AssistantWorkspace<br/>query planner"]
-  API --> Engine["TradingEngine"]
-  API --> Auth["Auth<br/>HttpOnly session cookie + CSRF"]
+  API --> Auth["Auth<br/>HttpOnly session + CSRF"]
+  API --> Assistant["AssistantWorkspace<br/>request planner"]
+  API --> Engine["TradingEngine<br/>decisions + orders"]
   API --> DB["PostgreSQL"]
 
-  Assistant --> Skills["SKILLS catalog<br/>Markdown cards"]
-  Assistant --> Engine
+  Assistant --> Skills["SKILLS catalog<br/>Markdown capability cards"]
   Assistant --> DB
-  Assistant --> Artifacts["Assistant artifacts<br/>tables, charts, web tabs"]
+  Assistant --> Engine
+  Assistant --> Artifacts["UI artifacts<br/>tables + charts + cards"]
 
   Engine --> Orchestrator["AgentOrchestrator<br/>specialists + supervisor"]
   Orchestrator --> Skills
   Orchestrator --> OpenAI["OpenAI API"]
-  Engine --> Risk["RiskManager<br/>deterministic gates"]
-  Engine --> DB
+  Engine --> Risk["RiskManager<br/>deterministic guardrails"]
   Engine --> BrokerFactory["Broker factory"]
+  Engine --> DB
 
   BrokerFactory --> Paper["PaperBroker"]
   BrokerFactory --> CreonDirect["CreonBroker<br/>Windows COM"]
   BrokerFactory --> CreonGatewayBroker["CreonGatewayBroker<br/>HTTP client"]
   CreonGatewayBroker --> Gateway["Windows CREON Gateway"]
-  Gateway --> Creon["CREON Plus / CYBOS Plus<br/>32-bit Windows COM"]
+  Gateway --> Creon["CREON Plus / CYBOS Plus<br/>32-bit COM"]
 ```
 
-## Assistant Query Flow
-
-The user-facing app no longer treats a request as one fixed intent. It asks the
-assistant planner to solve the full request, select all available skills needed
-for that solution, execute every connected workspace capability that applies,
-and explicitly report any missing skill.
+## Assistant Flow
 
 ```mermaid
 flowchart TD
-  Query["User query"] --> Planner["AssistantWorkspace planner"]
+  Query["User query"] --> Planner["Assistant planner"]
   Planner --> Objective["Define complete objective"]
-  Objective --> SkillCheck["Inspect SKILLS catalog"]
-  SkillCheck --> Existing["Select existing skill cards"]
-  SkillCheck --> Missing["List missing skills/integrations"]
-  Existing --> Capabilities["Choose all needed workspace capabilities"]
+  Objective --> SkillCatalog["Inspect SKILLS catalog"]
+  SkillCatalog --> ExistingSkills["Select available skills"]
+  SkillCatalog --> MissingSkills["Report missing skills"]
+  ExistingSkills --> Capabilities["Run needed capabilities"]
 
+  Capabilities --> Status["system_status"]
   Capabilities --> Portfolio["portfolio_review"]
   Capabilities --> Orders["order_review"]
   Capabilities --> History["decision_history"]
-  Capabilities --> Status["system_status"]
-  Capabilities --> WebResearch["web_research<br/>tab scaffold"]
+  Capabilities --> Research["web_research tab scaffold"]
   Capabilities --> Decision["trade_decision"]
 
-  Portfolio --> DBArtifacts["Database artifacts<br/>tables + charts"]
-  Orders --> DBArtifacts
-  History --> DBArtifacts
-  Status --> DBArtifacts
-  WebResearch --> ResearchArtifact["Browser-style research artifact"]
-  Decision --> DecisionArtifacts["Decision card + price line + vote bars + risk table"]
+  Status --> Response["AssistantQueryResponse"]
+  Portfolio --> Response
+  Orders --> Response
+  History --> Response
+  Research --> Response
+  Decision --> Response
+  MissingSkills --> Response
 
-  Missing --> Coverage["Skill coverage plan table"]
-  DBArtifacts --> Response["AssistantQueryResponse"]
-  ResearchArtifact --> Response
-  DecisionArtifacts --> Response
-  Coverage --> Response
+  Response --> UI["Rendered answer<br/>text + artifacts"]
 ```
 
 ## Trading Decision Flow
 
 ```mermaid
 sequenceDiagram
-  participant UI as User Web or Admin Web
+  participant UI as Web UI
   participant API as FastAPI
   participant Market as MarketDataService
   participant Engine as TradingEngine
   participant Agents as AgentOrchestrator
-  participant OpenAI as OpenAI
   participant Risk as RiskManager
   participant DB as PostgreSQL
-  participant Broker as Broker Adapter
+  participant Broker as Broker adapter
 
   UI->>API: POST /api/assistant/query or /api/decisions/run
-  API->>Market: Build MarketSnapshot
-  Market->>Broker: get_quote(symbol), unless last_price was provided
-  API->>Engine: run_decision(request, snapshot)
-  Engine->>Agents: run specialists and supervisor
-  Agents->>OpenAI: Structured model calls with SKILLS catalog
-  OpenAI-->>Agents: TradeDecisionPayload
-  Engine->>Risk: evaluate(decision, snapshot, limits)
+  API->>Market: Build market snapshot
+  Market->>Broker: Get quote unless last_price was provided
+  API->>Engine: Run decision
+  Engine->>Agents: Specialist agents + supervisor
+  Agents-->>Engine: Structured trade decision
+  Engine->>Risk: Apply deterministic guardrails
   Risk-->>Engine: APPROVED / REJECTED / NEEDS_APPROVAL
-  Engine->>DB: Persist agent run and trade decision
-  alt AUTO_EXECUTE=true and risk approved and action is BUY/SELL
-    Engine->>Broker: place_order(order)
-    Broker-->>Engine: broker order result
+  Engine->>DB: Persist agent run and decision
+  alt Auto execution enabled and risk approved
+    Engine->>Broker: Submit order
+    Broker-->>Engine: Broker result
     Engine->>DB: Persist order result
-  else manual approval or HOLD
+  else Hold or manual approval required
     Engine->>DB: Store decision without broker execution
   end
-  Engine-->>API: DecisionResponse
+  Engine-->>API: Decision response
   API-->>UI: Answer and artifacts
 ```
 
+## Core Components
+
+| Component            | Responsibility                                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `AssistantWorkspace` | Plans a user request as a full objective, selects needed capabilities, and returns a multi-artifact workspace response. |
+| `AgentOrchestrator`  | Uses OpenAI and the SKILLS catalog to run trading specialists and produce a structured decision.                        |
+| `TradingEngine`      | Persists agent runs and decisions, invokes risk checks, and coordinates order creation or approval.                     |
+| `RiskManager`        | Enforces non-negotiable safety boundaries outside the language model.                                                   |
+| `PaperBroker`        | Provides deterministic paper-mode quote/order behavior for development.                                                 |
+| `CreonGatewayBroker` | Calls the Windows gateway over HTTP for CREON quote and order operations.                                               |
+| `gateway`            | Runs on Windows and owns CREON Plus COM interaction.                                                                    |
+| `PostgreSQL`         | Stores users, sessions, decisions, agent payloads, orders, and positions.                                               |
+
 ## Runtime Services
 
-| Service     | Container               | Port   | Purpose                                        |
-| ----------- | ----------------------- | ------ | ---------------------------------------------- |
-| `postgres`  | `trade-pilot-postgres`  | `5432` | PostgreSQL database.                           |
-| `backend`   | `trade-pilot-backend`   | `8000` | FastAPI backend and agent/risk/order services. |
-| `admin-web` | `trade-pilot-admin-web` | `5173` | Admin dashboard.                               |
-| `user-web`  | `trade-pilot-user-web`  | `5174` | User-facing analyst workspace.                 |
+| Service       | Default URL / Port                             | Notes                                    |
+| ------------- | ---------------------------------------------- | ---------------------------------------- |
+| User web      | `http://localhost:5174`                        | Main user-facing web app.                |
+| Admin web     | `http://localhost:5173`                        | Admin operations dashboard.              |
+| Backend API   | `http://localhost:8000`                        | FastAPI routes and OpenAPI docs.         |
+| PostgreSQL    | `localhost:5432` or configured `POSTGRES_PORT` | Docker-backed local database.            |
+| CREON gateway | `http://WINDOWS_HOST:8765`                     | Optional Windows service for CREON Plus. |
 
-Start the full local stack:
+## Quick Start
+
+Create a local `.env` file with at least your OpenAI key and local admin
+credentials. Keep `.env` out of git.
 
 ```bash
-docker compose up -d --build
+OPENAI_API_KEY=your-openai-key
+OPENAI_MODEL=gpt-5.4-mini
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-this-password
 ```
 
-If your local PostgreSQL volume was created before Alembic migrations were
-enabled, the tables may already exist without an `alembic_version` row. For a
-local disposable database, reset the volume before starting:
+Start the default paper-trading stack:
 
 ```bash
-docker compose down -v
-docker compose up -d --build
-```
-
-For a local database you want to keep, stamp the existing base schema once and
-then apply the auth migration:
-
-```bash
-docker compose build backend
-docker compose run --rm backend alembic stamp 0001_initial
-docker compose run --rm backend alembic upgrade head
-docker compose up -d
+docker compose up --build -d
 ```
 
 Open:
 
-| App                  | URL                                |
-| -------------------- | ---------------------------------- |
-| User workspace       | `http://localhost:5174`            |
-| Admin dashboard      | `http://localhost:5173`            |
-| Backend health       | `http://localhost:8000/api/health` |
-| Backend OpenAPI docs | `http://localhost:8000/docs`       |
+| Surface         | URL                                |
+| --------------- | ---------------------------------- |
+| User workspace  | `http://localhost:5174`            |
+| Admin dashboard | `http://localhost:5173`            |
+| Backend health  | `http://localhost:8000/api/health` |
+| Backend docs    | `http://localhost:8000/docs`       |
 
-Stop the stack:
+For development workflows, local execution, testing, and CREON setup details,
+see [README_dev.md](./README_dev.md).
 
-```bash
-docker compose down
-```
+## CREON Plus Integration
 
-## Local Development
+CREON Plus is Windows-only and COM-based. The recommended live topology is to
+run the main app stack normally and run the CREON gateway on a separate Windows
+host or VM where CREON Plus is installed and logged in.
 
-| Component        | Commands                                                                                                                                                             |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend          | `cd backend`<br/>`python -m venv .venv`<br/>`source .venv/bin/activate`<br/>`pip install -e ".[dev]"`<br/>`alembic upgrade head`<br/>`uvicorn app.main:app --reload` |
-| User web         | `cd user-web`<br/>`npm install`<br/>`npm run dev`                                                                                                                    |
-| Admin web        | `cd admin-web`<br/>`npm install`<br/>`npm run dev`                                                                                                                   |
-| React Native app | `cd frontend`<br/>`npm install`<br/>`npm run start`                                                                                                                  |
+| Requirement                        | Why it matters                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------- |
+| Windows host or VM                 | CREON Plus depends on Windows COM and an interactive desktop login state. |
+| 32-bit Python process              | CREON Plus COM APIs require a 32-bit caller.                              |
+| CREON Plus installed and logged in | Quote and order COM objects depend on the active HTS session.             |
+| Explicit live gates                | Backend refuses live mode unless risk acknowledgements are enabled.       |
 
-## Hybrid Local Development
-
-Use this mode when PostgreSQL runs in Docker, but backend and user-web run
-directly on the host for faster iteration.
-
-| Step                  | Command                                                                                       | What it uses                                                                                                         |
-| --------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Start DB only         | `docker compose up -d postgres`                                                               | `POSTGRES_PORT`, Docker volume `trade_pilot_pg`.                                                                     |
-| Prepare backend once  | `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"` | Local Python virtual environment.                                                                                    |
-| Run backend           | `./scripts/dev_backend.sh`                                                                    | Root `.env`, `DATABASE_URL`, `BACKEND_HOST`, `BACKEND_PORT`; applies `alembic upgrade head` before starting Uvicorn. |
-| Prepare user-web once | `cd user-web && npm install`                                                                  | Local Node dependencies.                                                                                             |
-| Run user-web          | `./scripts/dev_user_web.sh`                                                                   | Root `.env`, `USER_WEB_HOST`, `USER_WEB_PORT`, `VITE_API_BASE_URL`.                                                  |
-
-The backend settings loader reads both the project root `.env` and
-`backend/.env`; `backend/.env` can override root values for backend-only local
-experiments. The Vite web configs use the project root `.env` via `envDir`, so
-`VITE_API_BASE_URL` and web ports stay centralized.
-
-If another local PostgreSQL process already listens on `127.0.0.1:5432`, expose
-the Docker database on a different host port and point the backend at that port:
-
-```bash
-POSTGRES_PORT=5433
-DATABASE_URL=postgresql+psycopg://trade_pilot:trade_pilot@localhost:5433/trade_pilot
-```
-
-## GitHub Publication Notes
-
-| Area                 | Rule                                                                                                                               |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Public documentation | The root `README.md` is the GitHub-facing overview and architecture document.                                                      |
-| Admin notes          | `admin-web/README.md` is local-only and ignored by git. Keep environment-specific admin runbooks there instead of publishing them. |
-| Secrets              | Do not commit `.env`, brokerage account numbers, gateway tokens, OpenAI keys, or production admin credentials.                     |
-| Production hosting   | Build frontend static assets and serve them behind HTTPS; do not use Vite dev servers as production hosting.                       |
-| Production cookies   | Set `APP_ENV=production`, `AUTH_COOKIE_SECURE=true`, and a non-default `ADMIN_PASSWORD`.                                           |
-
-## Key API Surface
-
-| Method | Path                             | Used by                             | Description                                                                                                                                                                |
-| ------ | -------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/api/health`                    | All clients                         | Backend status and active broker mode.                                                                                                                                     |
-| `GET`  | `/api/config`                    | User web, admin web                 | Public runtime config and risk limits.                                                                                                                                     |
-| `POST` | `/api/auth/register`             | User web                            | Creates a regular user account when registration is enabled and starts a cookie session.                                                                                   |
-| `POST` | `/api/auth/login`                | User web, admin web                 | Starts a server-side cookie session and returns a CSRF token plus `UserProfile`.                                                                                           |
-| `POST` | `/api/auth/logout`               | User web, admin web                 | Revokes the current server-side session and clears auth cookies.                                                                                                           |
-| `GET`  | `/api/auth/me`                   | User web, admin web                 | Validates the current session cookie and returns the authenticated user.                                                                                                   |
-| `POST` | `/api/assistant/query`           | User web                            | Authenticated query-centered assistant workspace endpoint. Returns answer, skill coverage, artifacts, suggested actions, and optional decision scoped to the current user. |
-| `POST` | `/api/decisions/run`             | Admin web, trading engine workflows | Runs a direct AI trade decision for the current user.                                                                                                                      |
-| `GET`  | `/api/decisions`                 | User web, admin web                 | Lists the current user's recent AI decisions.                                                                                                                              |
-| `GET`  | `/api/dashboard/summary`         | Admin web                           | Admin-role portfolio, PnL, order, and decision summary.                                                                                                                    |
-| `GET`  | `/api/dashboard/transactions`    | Admin web                           | Admin-role recent order transaction view.                                                                                                                                  |
-| `POST` | `/api/orders`                    | Admin web                           | Admin-role manual order staging in `PENDING_APPROVAL`.                                                                                                                     |
-| `POST` | `/api/orders/{order_id}/approve` | User web, admin web                 | Sends the current user's pending order to the active broker.                                                                                                               |
-| `GET`  | `/api/orders`                    | User web, admin web                 | Lists the current user's recent orders.                                                                                                                                    |
-| `GET`  | `/api/positions`                 | User web, admin web                 | Lists the current user's positions.                                                                                                                                        |
-
-## Assistant Artifacts
-
-| Artifact type   | Rendered as                                              | Typical source                                                         |
-| --------------- | -------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `metric_grid`   | Compact KPI grid                                         | System config, portfolio summary.                                      |
-| `table`         | Data table                                               | Positions, orders, decisions, risk results, skill coverage.            |
-| `line_chart`    | SVG line chart                                           | Synthetic paper-mode price context for a trade decision.               |
-| `bar_chart`     | Horizontal bar chart                                     | Agent confidence or order status distribution.                         |
-| `pie_chart`     | Allocation chart                                         | Portfolio market value allocation.                                     |
-| `web_tab`       | Browser-style research card with an external open action | Research tab scaffold. Real web-search ingestion is not yet connected. |
-| `decision_card` | Trading decision summary                                 | Action, symbol, quantity, confidence, risk status.                     |
-
-## SKILLS Catalog
-
-The prompt skill cards live in `backend/app/skills`. They are loaded by
-`SkillCatalog` and injected into the assistant planner and trading agents.
-
-| Skill file                    | Primary use                                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `index.md`                    | Global prompt rules for complete request solving, multi-skill selection, missing-skill reporting, and safety. |
-| `system_status_and_config.md` | Backend health, broker mode, model config, and risk limits.                                                   |
-| `market_snapshot.md`          | Quote source and `MarketSnapshot` construction.                                                               |
-| `ai_trade_decision.md`        | AI trade decision workflow and required variables.                                                            |
-| `risk_guardrails.md`          | Deterministic risk checks and execution boundaries.                                                           |
-| `order_management.md`         | Manual orders, approval, broker execution, and order listing.                                                 |
-| `portfolio_positions.md`      | Current holdings and market value views.                                                                      |
-| `decision_history.md`         | Recent AI decisions and stored risk outcomes.                                                                 |
-| `admin_dashboard.md`          | Admin-only summary, transactions, positions, and recent decisions.                                            |
-| `auth_admin_session.md`       | User registration, cookie-session login, CSRF behavior, logout, and admin role boundaries.                    |
-| `broker_adapters.md`          | Paper, direct CREON, and CREON gateway behavior.                                                              |
-| `creon_gateway.md`            | Windows-native gateway requirements and endpoints.                                                            |
-
-## Database Model
-
-| Table             | Model           | Purpose                                                                                        |
-| ----------------- | --------------- | ---------------------------------------------------------------------------------------------- |
-| `users`           | `User`          | Stores normalized login identity, password hash, role, active state, and audit timestamps.     |
-| `user_sessions`   | `UserSession`   | Stores hashes of opaque session and CSRF tokens, expiry, last-seen time, and revocation state. |
-| `agent_runs`      | `AgentRun`      | Stores user-scoped raw request and agent payloads for each agent decision run.                 |
-| `trade_decisions` | `TradeDecision` | Stores user-scoped structured AI decision, thesis, confidence, risk status, and raw payload.   |
-| `orders`          | `Order`         | Stores user-scoped staged, approved, submitted, filled, or rejected orders.                    |
-| `positions`       | `Position`      | Stores user-scoped symbol-level quantity, average price, and market price.                     |
-
-## Configuration
-
-Create a local `.env` file before running the backend outside Docker, or to
-override Docker defaults.
-
-| Variable                        | Default / example                                                         | Description                                                                                                                                     |
-| ------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                  | `postgresql+psycopg://trade_pilot:trade_pilot@localhost:5432/trade_pilot` | SQLAlchemy database URL. Docker overrides this to use the `postgres` service.                                                                   |
-| `POSTGRES_HOST`                 | `127.0.0.1`                                                               | Hostname used by local tooling when PostgreSQL runs through Docker.                                                                             |
-| `POSTGRES_PORT`                 | `5432`                                                                    | Host port exposed by the Docker PostgreSQL service.                                                                                             |
-| `BACKEND_HOST`                  | `127.0.0.1`                                                               | Host used by `scripts/dev_backend.sh`. Docker overrides this to `0.0.0.0` inside the backend container.                                         |
-| `BACKEND_PORT`                  | `8000`                                                                    | Backend Uvicorn port for local scripts and Docker Compose port mapping.                                                                         |
-| `BACKEND_BASE_URL`              | `http://localhost:8000`                                                   | Human-readable local backend base URL.                                                                                                          |
-| `USER_WEB_HOST`                 | `127.0.0.1`                                                               | Host used by the user-web Vite dev server.                                                                                                      |
-| `USER_WEB_PORT`                 | `5174`                                                                    | User-web Vite dev server port and backend CORS origin source.                                                                                   |
-| `ADMIN_WEB_HOST`                | `127.0.0.1`                                                               | Host used by the admin-web Vite dev server.                                                                                                     |
-| `ADMIN_WEB_PORT`                | `5173`                                                                    | Admin-web Vite dev server port and backend CORS origin source.                                                                                  |
-| `VITE_API_BASE_URL`             | `http://localhost:8000`                                                   | Browser-facing backend URL consumed by Vite web apps.                                                                                           |
-| `OPENAI_API_KEY`                | unset                                                                     | Enables real OpenAI planner and agent calls. Without it, trade decisions fall back to conservative `HOLD`; planner uses deterministic matching. |
-| `OPENAI_MODEL`                  | `gpt-5.4-mini`                                                            | Model name passed to LangChain `ChatOpenAI`.                                                                                                    |
-| `ADMIN_USERNAME`                | `admin`                                                                   | Bootstrap admin username.                                                                                                                       |
-| `ADMIN_PASSWORD`                | `change-me-now`                                                           | Bootstrap admin password. Change for any non-local environment. The default is refused in production.                                           |
-| `SESSION_TTL_MINUTES`           | `720`                                                                     | Server-side session and cookie expiry window.                                                                                                   |
-| `PASSWORD_HASH_ITERATIONS`      | `390000`                                                                  | PBKDF2-SHA256 iterations for password hashing.                                                                                                  |
-| `SESSION_COOKIE_NAME`           | `trade_pilot_session`                                                     | HttpOnly session cookie name.                                                                                                                   |
-| `CSRF_COOKIE_NAME`              | `trade_pilot_csrf`                                                        | Readable CSRF cookie name used by web clients for `X-CSRF-Token`.                                                                               |
-| `AUTH_COOKIE_SECURE`            | `false`                                                                   | Set to `true` when served over HTTPS.                                                                                                           |
-| `AUTH_COOKIE_SAMESITE`          | `lax`                                                                     | Session and CSRF cookie SameSite policy.                                                                                                        |
-| `ALLOW_USER_REGISTRATION`       | `true`                                                                    | Enables or disables public regular-user registration.                                                                                           |
-| `BROKER_MODE`                   | `paper`                                                                   | One of `paper`, `creon`, or `creon_gateway`.                                                                                                    |
-| `AUTO_EXECUTE`                  | `false`                                                                   | If true, approved BUY/SELL decisions can create broker orders automatically.                                                                    |
-| `ALLOW_LIVE_TRADING`            | `false`                                                                   | Required live-trading gate.                                                                                                                     |
-| `I_UNDERSTAND_LOSS_RISK`        | `false`                                                                   | Required live-trading gate.                                                                                                                     |
-| `MAX_ORDER_KRW`                 | `500000`                                                                  | Max notional per executable decision.                                                                                                           |
-| `MAX_POSITION_KRW`              | `1000000`                                                                 | Max position notional.                                                                                                                          |
-| `MAX_DAILY_LOSS_KRW`            | `200000`                                                                  | Reserved daily loss cap setting.                                                                                                                |
-| `MIN_DECISION_CONFIDENCE`       | `0.62`                                                                    | Minimum confidence for executable decisions.                                                                                                    |
-| `CREON_ACCOUNT_NO`              | unset                                                                     | Required for direct CREON or gateway live orders.                                                                                               |
-| `CREON_GOODS_CODE`              | `01`                                                                      | CREON account goods code.                                                                                                                       |
-| `CREON_GATEWAY_URL`             | `http://127.0.0.1:8765`                                                   | Windows gateway base URL.                                                                                                                       |
-| `CREON_GATEWAY_TOKEN`           | unset                                                                     | Optional shared token sent as `x-trade-pilot-token`.                                                                                            |
-| `CREON_GATEWAY_TIMEOUT_SECONDS` | `10`                                                                      | HTTP timeout for gateway calls.                                                                                                                 |
-
-For live CREON mode, start from [.env.creon.example](./.env.creon.example).
-Keep `AUTO_EXECUTE=false` until the gateway, account, quote path, order path,
-and manual approval flow have been tested with intentionally small limits.
+`docker compose up --build -d` does not create a Windows VM, install CREON
+Plus, or complete brokerage login. Those steps must be handled on the Windows
+machine. The repository includes helper scripts for preparing the Python
+gateway runtime after CREON Plus is installed.
 
 ## Safety Boundaries
 
-| Boundary                      | Enforcement                                                                                                                             |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| User isolation                | Authenticated routes scope decisions, orders, and positions to the current `users.id`.                                                  |
-| Session security              | Browser auth uses opaque HttpOnly session cookies, server-side token hashes, CSRF double-submit verification, and revocable sessions.   |
-| Admin access                  | Admin dashboard summary, transactions, and manual order staging require `role=admin`.                                                   |
-| Default paper mode            | `BROKER_MODE=paper`; Docker backend also sets `BROKER_MODE=paper`.                                                                      |
-| Live trading opt-in           | Requires `BROKER_MODE` of `creon` or `creon_gateway`, `ALLOW_LIVE_TRADING=true`, and `I_UNDERSTAND_LOSS_RISK=true`.                     |
-| Model cannot execute directly | OpenAI produces structured decisions only. `TradingEngine` and `RiskManager` decide whether an order can be created.                    |
-| Risk gate                     | Rejects low confidence, invalid quantity, oversized notional, position-limit breach, unapproved live mode, or requested human approval. |
-| Manual approval               | `AUTO_EXECUTE=false` means decisions do not create broker orders automatically. Manual orders are staged as `PENDING_APPROVAL`.         |
-| Missing skills                | The assistant planner reports missing provider/integration skills instead of inventing endpoints or data.                               |
+| Boundary            | Enforcement                                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Default paper mode  | The standard Docker stack runs `BROKER_MODE=paper`.                                                                    |
+| Live trading opt-in | Requires `BROKER_MODE=creon` or `creon_gateway`, `ALLOW_LIVE_TRADING=true`, and `I_UNDERSTAND_LOSS_RISK=true`.         |
+| Model boundary      | OpenAI can propose structured decisions, but it cannot submit orders directly.                                         |
+| Risk gate           | Backend rejects invalid quantity, low confidence, oversized notional, position-limit breach, and unapproved live mode. |
+| Auth boundary       | User routes are session-authenticated and scoped to the current user.                                                  |
+| Admin boundary      | Dashboard summaries, transaction views, manual order staging, and approvals require admin role.                        |
+| Manual approval     | `AUTO_EXECUTE=false` prevents AI decisions from creating broker orders automatically.                                  |
 
-## Auth Flow
+## Repository Layout
 
-| Step                | Component                    | Behavior                                                                                                                                                 |
-| ------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Register            | `POST /api/auth/register`    | Creates a regular `user` account when `ALLOW_USER_REGISTRATION=true`, hashes the password, creates a server-side session, and sets session/CSRF cookies. |
-| Login               | `POST /api/auth/login`       | Authenticates an existing user. The configured admin credentials bootstrap an `admin` user on first successful login.                                    |
-| Session validation  | `GET /api/auth/me`           | Reads the HttpOnly session cookie, verifies the stored token hash, expiry, revocation state, and active user.                                            |
-| CSRF protection     | unsafe authenticated methods | Requires `X-CSRF-Token` to match the readable CSRF cookie and the server-side CSRF token hash.                                                           |
-| Logout              | `POST /api/auth/logout`      | Revokes the current session row and clears auth cookies.                                                                                                 |
-| Admin authorization | admin dashboard routes       | Requires a valid session plus `role=admin`.                                                                                                              |
-
-## CREON Plus Constraints
-
-CREON Plus / CYBOS Plus is a Windows COM API. Direct live trading requires:
-
-| Requirement                        | Reason                                                                |
-| ---------------------------------- | --------------------------------------------------------------------- |
-| Windows host or Windows VM         | CREON Plus depends on Windows COM and an interactive HTS login state. |
-| 32-bit Python caller               | CREON Plus COM callers must be 32-bit.                                |
-| `pywin32`                          | Required for COM dispatch.                                            |
-| CREON Plus installed and logged in | Quote/order COM objects depend on the local logged-in session.        |
-| Explicit live gates                | Backend refuses live mode unless loss-risk approvals are enabled.     |
-
-### Recommended Live Topology
-
-The recommended production shape is:
-
-| Process | Host | Reason |
-| --- | --- | --- |
-| `postgres`, `backend`, `user-web`, `admin-web` | Docker Compose on the dev/server machine | Ordinary app services. |
-| `gateway` | Windows host or Windows VM with CREON Plus installed and logged in | Owns the 32-bit COM session and live broker boundary. |
-
-This keeps the main app containerized while the Windows-only COM session stays
-on the machine where CREON Plus actually runs.
-
-### What Docker Compose Does Not Do
-
-`docker compose up --build -d` cannot create a Windows VM, install CREON Plus,
-complete broker security-module setup, or maintain an interactive HTS login
-session. Compose defines and starts Docker containers; VM lifecycle and Windows
-desktop app installation must be handled outside Compose.
-
-Use [infra/windows/setup-creon-gateway.ps1](./infra/windows/setup-creon-gateway.ps1)
-inside an existing Windows host or Windows VM to prepare the Python gateway
-runtime after CREON Plus has been installed from the broker-approved installer.
-
-Run the gateway directly on Windows:
-
-```powershell
-cd gateway
-py -3.11-32 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-$env:GATEWAY_TOKEN="change-me"
-$env:CREON_ACCOUNT_NO="replace-with-account-number"
-$env:CREON_GOODS_CODE="01"
-$env:ALLOW_LIVE_TRADING="true"
-$env:I_UNDERSTAND_LOSS_RISK="true"
-uvicorn main:app --host 0.0.0.0 --port 8765
+```text
+Trade-pilot/
+  backend/                  FastAPI backend, agents, risk, DB models, broker adapters
+  user-web/                 React/Vite user workspace
+  admin-web/                React/Vite admin dashboard
+  frontend/                 Legacy React Native / Expo app
+  gateway/                  Windows CREON Plus gateway
+  backend/app/skills/       Markdown skills injected into assistant prompts
+  infra/windows/            Windows gateway setup helper
+  scripts/                  Local development helper scripts
+  docker-compose.yml        Default paper-mode local stack
+  docker-compose.creon-gateway.yml
+  docker-compose.windows.yml
 ```
 
-Or use the Windows helper from the repository root:
+## Status
 
-```powershell
-.\infra\windows\setup-creon-gateway.ps1 `
-  -GatewayToken "change-me" `
-  -CreonAccountNo "replace-with-account-number" `
-  -AllowLiveTrading `
-  -UnderstandLossRisk
-.\gateway\run-creon-gateway.ps1
-```
-
-Then point the Docker backend at the gateway:
-
-```bash
-BROKER_MODE=creon_gateway
-CREON_GATEWAY_URL=http://WINDOWS_VM_IP:8765
-CREON_GATEWAY_TOKEN=change-me
-ALLOW_LIVE_TRADING=true
-I_UNDERSTAND_LOSS_RISK=true
-```
-
-Run the app stack with the CREON override:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.creon-gateway.yml up --build -d
-```
-
-Or merge the values from `.env.creon.example` into your local `.env`, fill the
-values, and keep `COMPOSE_FILE=docker-compose.yml:docker-compose.creon-gateway.yml`
-so the same plain command loads the override:
-
-```bash
-# edit .env; do not overwrite existing secrets
-# set CREON_GATEWAY_URL, token, account, and live gates intentionally
-docker compose up --build -d
-```
-
-### Windows Container Image
-
-The repo also includes an experimental Windows-container gateway image:
-
-```powershell
-docker compose -f docker-compose.windows.yml up --build -d creon-gateway
-```
-
-If you want that Windows gateway file to be the default for a Windows gateway
-machine, set `COMPOSE_FILE=docker-compose.windows.yml` in that machine's
-environment before running:
-
-```powershell
-docker compose up --build -d
-```
-
-Use this only on a Windows host with Docker Desktop switched to Windows
-containers. It is not supported from macOS Docker Desktop. A Windows container
-does not automatically inherit the host's CREON Plus installation, COM
-registration, logged-in HTS session, or trade-password state. In practice, the
-direct Windows host gateway above is the safer and more predictable path for
-actual CREON connectivity.
-
-## Validation
-
-| Check                              | Command                                                                                                                                                                                                                                                                                                       |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend syntax                     | `python3 -m py_compile backend/app/core/config.py backend/app/core/auth.py backend/app/models.py backend/app/schemas.py backend/app/api/routes.py backend/app/services/trading_engine.py backend/app/services/assistant_workspace.py backend/app/main.py backend/alembic/versions/0002_user_auth_sessions.py` |
-| Backend tests                      | `env PYTHONPATH=backend backend/.venv/bin/pytest backend/tests`                                                                                                                                                                                                                                               |
-| User web typecheck                 | `npm run typecheck --prefix user-web`                                                                                                                                                                                                                                                                         |
-| User web build                     | `npm run build --prefix user-web`                                                                                                                                                                                                                                                                             |
-| Admin web typecheck                | `npm run typecheck --prefix admin-web`                                                                                                                                                                                                                                                                        |
-| Admin web build                    | `npm run build --prefix admin-web`                                                                                                                                                                                                                                                                            |
-| Backend health                     | `curl http://127.0.0.1:8000/api/health`                                                                                                                                                                                                                                                                       |
-| CREON Compose config               | `ALLOW_LIVE_TRADING=true I_UNDERSTAND_LOSS_RISK=true CREON_GATEWAY_URL=http://127.0.0.1:8765 CREON_GATEWAY_TOKEN=test docker compose -f docker-compose.yml -f docker-compose.creon-gateway.yml config --quiet`                                                                                              |
-| Windows gateway Compose config     | `CREON_GATEWAY_TOKEN=test docker compose -f docker-compose.windows.yml config --quiet`                                                                                                                                                                                                                         |
-| Authenticated assistant smoke test | Register or log in through `user-web`, then run a query from the browser so cookies and CSRF are sent automatically.                                                                                                                                                                                          |
-
-Trade-pilot is engineering scaffolding, not financial advice. Test in paper mode
-with small mock limits before connecting any real brokerage account.
+Trade-pilot is an engineering scaffold for a trading assistant and broker
+integration workflow. Treat live trading as a separate production-hardening
+project: validate paper mode first, keep limits small, add broker reconciliation
+and audit logging, and do not enable automatic execution until the full order
+lifecycle is proven end to end.

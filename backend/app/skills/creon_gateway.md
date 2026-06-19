@@ -15,6 +15,7 @@ The main backend uses this service when `BROKER_MODE=creon_gateway`.
 | CREON Plus | Installed, logged in, trade password configured |
 | Environment gates | `ALLOW_LIVE_TRADING=true` and `I_UNDERSTAND_LOSS_RISK=true` |
 | Account | `CREON_ACCOUNT_NO` configured for orders |
+| Gateway token | `GATEWAY_TOKEN` configured when live trading is enabled |
 
 ## Docker modes
 
@@ -46,6 +47,14 @@ Response fields:
 | --- | --- | --- |
 | `status` | string | Expected `ok`. |
 | `live_trading_enabled` | boolean | Gateway-side live-trading gate state. |
+| `runtime` | object | Platform, Python bitness, pywin32, token/account config, and optional CREON connection fields. |
+
+### `GET /ready`
+
+Readiness check for live gateway use. Returns `200` with `status=ready` only
+when Windows, 32-bit Python, pywin32, live gates, account config, gateway token,
+and CREON connection are all available. Returns `503` with `status=not_ready`
+and a `runtime.message` explaining missing prerequisites otherwise.
 
 ### `GET /quote/{symbol}`
 
@@ -67,6 +76,8 @@ Response body: `QuoteResponse`
 | `high_price` | decimal or null | High price. |
 | `low_price` | decimal or null | Low price. |
 | `volume` | integer or null | Volume. |
+| `source` | string | Expected `creon`. |
+| `as_of` | datetime or null | Gateway timestamp for the response. |
 
 ### `POST /orders`
 
@@ -89,6 +100,29 @@ Response body: `OrderResponse`
 | `broker_order_id` | string or null | CREON order number when available. |
 | `status` | `SUBMITTED` / `REJECTED` | Gateway status mapping. |
 | `message` | string | CREON status message. |
+| `creon_status_code` | integer or null | CREON DIB status code from the order request. |
+| `submitted_at` | datetime or null | Gateway timestamp for the order response. |
+
+## Error payload
+
+Gateway runtime errors return HTTP 503 with structured detail:
+
+| Field | Meaning |
+| --- | --- |
+| `detail.code` | Stable error category such as `creon_com_busy`, `creon_unavailable`, or `creon_quote_rejected`. |
+| `detail.message` | Human-readable reason. |
+| `detail.retryable` | Whether a retry may make sense. Orders are not retried automatically. |
+| `detail.request_id` | Gateway request ID also emitted as `x-request-id`. |
+
+## Stability behavior
+
+| Behavior | Reason |
+| --- | --- |
+| Process-wide COM lock | CREON COM calls are serialized to avoid concurrent access to the HTS COM session. |
+| Quote retry only | Quotes are read-only and can retry bounded transient failures. |
+| No automatic order retry | Prevents duplicate live orders when a broker response is ambiguous. |
+| Constant-time token comparison | Reduces token comparison timing leakage. |
+| `/ready` separated from `/health` | Liveness remains cheap; readiness can touch CREON COM. |
 
 ## CREON mapping
 
