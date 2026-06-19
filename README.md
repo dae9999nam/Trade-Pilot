@@ -19,8 +19,8 @@ financial advice, and live brokerage access is disabled by default.
 | Risk controls          | Deterministic checks enforce confidence thresholds, position limits, order size limits, human approval, and live-trading gates.                      |
 | Paper trading          | The default broker is a safe paper adapter for local testing.                                                                                        |
 | CREON Plus integration | Optional Windows-native gateway can bridge to CREON Plus / CYBOS Plus COM APIs.                                                                      |
-| Authenticated web app  | Browser clients use server-side sessions, HttpOnly cookies, CSRF protection, and user-scoped data.                                                   |
-| Admin console          | Admin users can inspect dashboard summaries, positions, recent decisions, transactions, and orders.                                                  |
+| Authenticated web app  | Users can sign in and work with their own trading workspace data.                                                                                     |
+| Admin console          | Operators can inspect dashboard summaries, positions, recent decisions, transactions, and orders.                                                    |
 
 ## Applications
 
@@ -44,7 +44,7 @@ flowchart LR
   AdminWeb --> API
   MobileApp --> API
 
-  API --> Auth["Auth<br/>HttpOnly session + CSRF"]
+  API --> Access["Identity & access layer"]
   API --> Assistant["AssistantWorkspace<br/>request planner"]
   API --> Engine["TradingEngine<br/>decisions + orders"]
   API --> DB["PostgreSQL"]
@@ -141,7 +141,7 @@ sequenceDiagram
 | `PaperBroker`        | Provides deterministic paper-mode quote/order behavior for development.                                                 |
 | `CreonGatewayBroker` | Calls the Windows gateway over HTTP for CREON quote and order operations.                                               |
 | `gateway`            | Runs on Windows and owns CREON Plus COM interaction.                                                                    |
-| `PostgreSQL`         | Stores users, sessions, decisions, agent payloads, orders, and positions.                                               |
+| `PostgreSQL`         | Stores application data for users, decisions, agent payloads, orders, and positions.                                    |
 
 ## Runtime Services
 
@@ -155,15 +155,8 @@ sequenceDiagram
 
 ## Quick Start
 
-Create a local `.env` file with at least your OpenAI key and local admin
-credentials. Keep `.env` out of git.
-
-```bash
-OPENAI_API_KEY=your-openai-key
-OPENAI_MODEL=gpt-5.4-mini
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=change-this-password
-```
+Create a local `.env` file for your runtime settings. Keep local configuration
+out of git.
 
 Start the default paper-trading stack:
 
@@ -177,11 +170,9 @@ Open:
 | --------------- | ---------------------------------- |
 | User workspace  | `http://localhost:5174`            |
 | Admin dashboard | `http://localhost:5173`            |
-| Backend health  | `http://localhost:8000/api/health` |
-| Backend docs    | `http://localhost:8000/docs`       |
+| Backend API     | `http://localhost:8000`            |
 
-For development workflows, local execution, testing, and CREON setup details,
-see [README_dev.md](./README_dev.md).
+Development runbooks are intentionally kept outside the public README.
 
 ## CREON Plus Integration
 
@@ -194,24 +185,10 @@ host or VM where CREON Plus is installed and logged in.
 | Windows host or VM                 | CREON Plus depends on Windows COM and an interactive desktop login state. |
 | 32-bit Python process              | CREON Plus COM APIs require a 32-bit caller.                              |
 | CREON Plus installed and logged in | Quote and order COM objects depend on the active HTS session.             |
-| Explicit live gates                | Backend refuses live mode unless risk acknowledgements are enabled.       |
 
 `docker compose up --build -d` does not create a Windows VM, install CREON
 Plus, or complete brokerage login. Those steps must be handled on the Windows
-machine. The repository includes helper scripts for preparing the Python
-gateway runtime after CREON Plus is installed.
-
-## Safety Boundaries
-
-| Boundary            | Enforcement                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Default paper mode  | The standard Docker stack runs `BROKER_MODE=paper`.                                                                    |
-| Live trading opt-in | Requires `BROKER_MODE=creon` or `creon_gateway`, `ALLOW_LIVE_TRADING=true`, and `I_UNDERSTAND_LOSS_RISK=true`.         |
-| Model boundary      | OpenAI can propose structured decisions, but it cannot submit orders directly.                                         |
-| Risk gate           | Backend rejects invalid quantity, low confidence, oversized notional, position-limit breach, and unapproved live mode. |
-| Auth boundary       | User routes are session-authenticated and scoped to the current user.                                                  |
-| Admin boundary      | Dashboard summaries, transaction views, manual order staging, and approvals require admin role.                        |
-| Manual approval     | `AUTO_EXECUTE=false` prevents AI decisions from creating broker orders automatically.                                  |
+machine.
 
 ## Repository Layout
 
@@ -233,7 +210,6 @@ Trade-pilot/
 ## Status
 
 Trade-pilot is an engineering scaffold for a trading assistant and broker
-integration workflow. Treat live trading as a separate production-hardening
-project: validate paper mode first, keep limits small, add broker reconciliation
-and audit logging, and do not enable automatic execution until the full order
-lifecycle is proven end to end.
+integration workflow. Treat live brokerage connectivity as a separate
+production-hardening project and validate the full lifecycle in paper mode
+before considering live execution.
