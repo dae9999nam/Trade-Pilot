@@ -87,12 +87,41 @@ class Order(Base):
     status: Mapped[str] = mapped_column(String(32))
     broker_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    canceled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    submission_attempts: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     decision: Mapped[TradeDecision | None] = relationship(back_populates="orders")
+    events: Mapped[list["OrderEvent"]] = relationship(
+        back_populates="order", cascade="all, delete-orphan", order_by="OrderEvent.created_at"
+    )
+
+
+class OrderEvent(Base):
+    __tablename__ = "order_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    from_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(32))
+    event_type: Mapped[str] = mapped_column(String(64))
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    broker_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    event_payload: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    order: Mapped[Order] = relationship(back_populates="events")
 
 
 class Position(Base):

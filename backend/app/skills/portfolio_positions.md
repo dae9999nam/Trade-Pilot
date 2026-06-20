@@ -26,9 +26,9 @@ Response body: array of `PositionView`
 
 | Event | Behavior |
 | --- | --- |
-| Paper order `FILLED` or `SUBMITTED` | `TradingEngine._upsert_paper_position` updates the stored position. |
+| Paper order `FILLED` | `TradingEngine._upsert_paper_position` updates the stored position. |
 | Buy order | Increases quantity and recalculates average price. |
-| Sell order | Decreases quantity. If quantity falls to or below zero, stored quantity becomes `0`. |
+| Sell order | Decreases quantity and preserves the existing average price while shares remain. If quantity falls to or below zero, stored quantity becomes `0`. |
 | Live CREON order | Current backend does not reconcile live broker holdings into `positions`. |
 
 ## Safety notes

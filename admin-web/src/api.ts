@@ -52,6 +52,17 @@ export type DecisionResponse = {
   };
 };
 
+export type OrderStatus =
+  | "PENDING_APPROVAL"
+  | "APPROVED"
+  | "SUBMITTING"
+  | "SUBMITTED"
+  | "PARTIALLY_FILLED"
+  | "FILLED"
+  | "REJECTED"
+  | "SUBMISSION_FAILED"
+  | "CANCELED";
+
 export type OrderCreate = {
   symbol: string;
   side: "BUY" | "SELL";
@@ -68,12 +79,36 @@ export type OrderView = {
   quantity: number;
   order_type: string;
   limit_price: number | null;
-  status: string;
+  status: OrderStatus | string;
   broker_order_id: string | null;
   message: string | null;
+  approved_at: string | null;
+  submitted_at: string | null;
+  filled_at: string | null;
+  rejected_at: string | null;
+  failed_at: string | null;
+  canceled_at: string | null;
+  last_status_at: string | null;
+  submission_attempts: number;
+  can_approve: boolean;
+  is_terminal: boolean;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type TransactionView = OrderView & {
+  created_at: string;
+};
+
+export type OrderEventView = {
+  id: number;
+  order_id: number;
+  from_status: string | null;
+  to_status: string;
+  event_type: string;
+  message: string | null;
+  broker_order_id: string | null;
+  event_payload: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -151,6 +186,10 @@ export class ApiClient {
 
   async approveOrder(orderId: number): Promise<OrderView> {
     return this.post(`/api/orders/${orderId}/approve`, {});
+  }
+
+  async orderEvents(orderId: number): Promise<OrderEventView[]> {
+    return this.get(`/api/orders/${orderId}/events`);
   }
 
   async positions(): Promise<PositionView[]> {

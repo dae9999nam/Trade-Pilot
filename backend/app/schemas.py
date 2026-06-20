@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -6,6 +7,17 @@ from pydantic import BaseModel, Field, field_validator
 Action = Literal["BUY", "SELL", "HOLD"]
 RiskStatus = Literal["APPROVED", "REJECTED", "NEEDS_APPROVAL"]
 UserRole = Literal["user", "admin"]
+OrderStatus = Literal[
+    "PENDING_APPROVAL",
+    "APPROVED",
+    "SUBMITTING",
+    "SUBMITTED",
+    "PARTIALLY_FILLED",
+    "FILLED",
+    "REJECTED",
+    "SUBMISSION_FAILED",
+    "CANCELED",
+]
 
 
 class LoginRequest(BaseModel):
@@ -154,9 +166,35 @@ class OrderView(BaseModel):
     quantity: int
     order_type: str
     limit_price: Decimal | None
-    status: str
+    status: OrderStatus | str
     broker_order_id: str | None
     message: str | None
+    approved_at: datetime | None = None
+    submitted_at: datetime | None = None
+    filled_at: datetime | None = None
+    rejected_at: datetime | None = None
+    failed_at: datetime | None = None
+    canceled_at: datetime | None = None
+    last_status_at: datetime | None = None
+    submission_attempts: int = 0
+    can_approve: bool = False
+    is_terminal: bool = False
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class OrderEventView(BaseModel):
+    id: int
+    order_id: int
+    from_status: str | None
+    to_status: str
+    event_type: str
+    message: str | None
+    broker_order_id: str | None
+    event_payload: dict[str, Any] | None
+    created_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -192,7 +230,17 @@ class TransactionView(BaseModel):
     mode: str
     broker_order_id: str | None
     message: str | None
-    created_at: str
+    approved_at: datetime | None = None
+    submitted_at: datetime | None = None
+    filled_at: datetime | None = None
+    rejected_at: datetime | None = None
+    failed_at: datetime | None = None
+    canceled_at: datetime | None = None
+    last_status_at: datetime | None = None
+    submission_attempts: int = 0
+    can_approve: bool = False
+    is_terminal: bool = False
+    created_at: datetime
 
 
 class DashboardSummary(BaseModel):

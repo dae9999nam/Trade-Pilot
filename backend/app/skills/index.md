@@ -28,7 +28,7 @@ OpenAI prompts used by `AgentOrchestrator` and the assistant workspace planner.
 | `market_snapshot.md` | Understand how quotes and request-provided prices become `MarketSnapshot`. |
 | `ai_trade_decision.md` | Run or reason about AI trade decisions through `/api/decisions/run`. |
 | `risk_guardrails.md` | Explain deterministic risk checks and why decisions are approved or rejected. |
-| `order_management.md` | Stage manual orders, approve pending orders, and list orders. |
+| `order_management.md` | Stage manual orders, approve or retry approvable orders, list orders, and inspect lifecycle events. |
 | `portfolio_positions.md` | Read current holdings and portfolio position values. |
 | `decision_history.md` | Read recent AI decisions and their risk outcomes. |
 | `admin_dashboard.md` | Read admin-only account summary and transaction views. |

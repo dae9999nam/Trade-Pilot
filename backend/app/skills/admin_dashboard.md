@@ -37,10 +37,10 @@ Key response fields:
 | `total_cost_basis` | decimal | Sum of quantity times average price. |
 | `unrealized_pnl` | decimal | Market value minus cost basis. |
 | `positions_count` | integer | Count of non-zero positions. |
-| `open_orders_count` | integer | Count of `PENDING_APPROVAL` and `SUBMITTED` recent orders. |
+| `open_orders_count` | integer | Count of non-terminal recent orders: `PENDING_APPROVAL`, `APPROVED`, `SUBMITTING`, `SUBMITTED`, `PARTIALLY_FILLED`, and `SUBMISSION_FAILED`. |
 | `filled_orders_count` | integer | Count of recent filled orders. |
 | `rejected_orders_count` | integer | Count of recent rejected orders. |
-| `recent_transactions` | array | Recent order transaction views. |
+| `recent_transactions` | array | Recent order transaction views with lifecycle timestamps, `submission_attempts`, `can_approve`, and `is_terminal`. |
 | `positions` | array | Current positions. |
 | `recent_decisions` | array | Recent AI decision summaries. |
 

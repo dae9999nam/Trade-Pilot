@@ -16,7 +16,7 @@ from app.core.auth import (
 from app.core.config import settings
 from app.db.session import get_db
 from app.market.data import MarketDataService
-from app.models import Order, Position, TradeDecision
+from app.models import Order, OrderEvent, Position, TradeDecision
 from app.schemas import (
     AssistantQueryRequest,
     AssistantQueryResponse,
@@ -27,6 +27,7 @@ from app.schemas import (
     LoginRequest,
     LoginResponse,
     OrderCreate,
+    OrderEventView,
     OrderView,
     PositionView,
     RegisterRequest,
@@ -34,6 +35,13 @@ from app.schemas import (
     UserProfile,
 )
 from app.services.assistant_workspace import AssistantWorkspace
+from app.services.order_lifecycle import (
+    ORDER_FILLED,
+    ORDER_OPEN_STATUSES,
+    ORDER_REJECTED,
+    can_approve,
+    is_terminal,
+)
 from app.services.trading_engine import TradingEngine
 
 router = APIRouter()
@@ -172,8 +180,6 @@ def dashboard_summary(
     total_cost_basis = sum(
         (Decimal(position.quantity) * position.avg_price for position in positions), Decimal("0")
     )
-    open_statuses = {"PENDING_APPROVAL", "SUBMITTED"}
-
     return DashboardSummary(
         user=user,
         broker_mode=settings.broker_mode,
@@ -183,9 +189,9 @@ def dashboard_summary(
         total_cost_basis=total_cost_basis,
         unrealized_pnl=total_market_value - total_cost_basis,
         positions_count=sum(1 for position in positions if position.quantity != 0),
-        open_orders_count=sum(1 for order in recent_orders if order.status in open_statuses),
-        filled_orders_count=sum(1 for order in recent_orders if order.status == "FILLED"),
-        rejected_orders_count=sum(1 for order in recent_orders if order.status == "REJECTED"),
+        open_orders_count=sum(1 for order in recent_orders if order.status in ORDER_OPEN_STATUSES),
+        filled_orders_count=sum(1 for order in recent_orders if order.status == ORDER_FILLED),
+        rejected_orders_count=sum(1 for order in recent_orders if order.status == ORDER_REJECTED),
         recent_transactions=[_transaction_view(order) for order in recent_orders],
         positions=positions,
         recent_decisions=[_decision_view(decision) for decision in recent_decisions],
@@ -208,8 +214,9 @@ def create_order(
     payload: OrderCreate,
     db: Session = Depends(get_db),
     user: UserProfile = Depends(require_admin),
-) -> Order:
-    return TradingEngine(db, get_broker(), settings, user.id).create_manual_order(payload)
+) -> OrderView:
+    order = TradingEngine(db, get_broker(), settings, user.id).create_manual_order(payload)
+    return _order_view(order)
 
 
 @router.post("/orders/{order_id}/approve", response_model=OrderView)
@@ -217,9 +224,10 @@ def approve_order(
     order_id: int,
     db: Session = Depends(get_db),
     user: UserProfile = Depends(require_auth),
-) -> Order:
+) -> OrderView:
     try:
-        return TradingEngine(db, get_broker(), settings, user.id).approve_order(order_id)
+        order = TradingEngine(db, get_broker(), settings, user.id).approve_order(order_id)
+        return _order_view(order)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -228,10 +236,29 @@ def approve_order(
 def list_orders(
     db: Session = Depends(get_db),
     user: UserProfile = Depends(require_auth),
-) -> list[Order]:
+) -> list[OrderView]:
+    return [
+        _order_view(order)
+        for order in db.scalars(
+            select(Order).where(Order.user_id == user.id).order_by(Order.created_at.desc()).limit(50)
+        ).all()
+    ]
+
+
+@router.get("/orders/{order_id}/events", response_model=list[OrderEventView])
+def list_order_events(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> list[OrderEvent]:
+    order = db.scalar(select(Order).where(Order.id == order_id, Order.user_id == user.id))
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
     return list(
         db.scalars(
-            select(Order).where(Order.user_id == user.id).order_by(Order.created_at.desc()).limit(50)
+            select(OrderEvent)
+            .where(OrderEvent.order_id == order_id)
+            .order_by(OrderEvent.created_at.asc(), OrderEvent.id.asc())
         ).all()
     )
 
@@ -246,19 +273,57 @@ def list_positions(
     )
 
 
-def _transaction_view(order: Order) -> TransactionView:
-    return TransactionView(
+def _order_view(order: Order) -> OrderView:
+    return OrderView(
         id=order.id,
+        mode=order.mode,
         symbol=order.symbol,
         side=order.side,
         quantity=order.quantity,
         order_type=order.order_type,
         limit_price=order.limit_price,
         status=order.status,
-        mode=order.mode,
         broker_order_id=order.broker_order_id,
         message=order.message,
-        created_at=order.created_at.isoformat(),
+        approved_at=order.approved_at,
+        submitted_at=order.submitted_at,
+        filled_at=order.filled_at,
+        rejected_at=order.rejected_at,
+        failed_at=order.failed_at,
+        canceled_at=order.canceled_at,
+        last_status_at=order.last_status_at,
+        submission_attempts=order.submission_attempts,
+        can_approve=can_approve(order),
+        is_terminal=is_terminal(order),
+        created_at=order.created_at,
+        updated_at=order.updated_at,
+    )
+
+
+def _transaction_view(order: Order) -> TransactionView:
+    order_view = _order_view(order)
+    return TransactionView(
+        id=order_view.id,
+        symbol=order_view.symbol,
+        side=order_view.side,
+        quantity=order_view.quantity,
+        order_type=order_view.order_type,
+        limit_price=order_view.limit_price,
+        status=order_view.status,
+        mode=order_view.mode,
+        broker_order_id=order_view.broker_order_id,
+        message=order_view.message,
+        approved_at=order_view.approved_at,
+        submitted_at=order_view.submitted_at,
+        filled_at=order_view.filled_at,
+        rejected_at=order_view.rejected_at,
+        failed_at=order_view.failed_at,
+        canceled_at=order_view.canceled_at,
+        last_status_at=order_view.last_status_at,
+        submission_attempts=order_view.submission_attempts,
+        can_approve=order_view.can_approve,
+        is_terminal=order_view.is_terminal,
+        created_at=order_view.created_at or order.created_at,
     )
 
 

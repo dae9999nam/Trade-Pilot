@@ -23,6 +23,7 @@ import {
 } from "./api";
 
 type Tab = "dashboard" | "agents" | "orders" | "transactions";
+type Tone = "blue" | "green" | "amber" | "red" | "slate";
 
 export default function App() {
   const api = useMemo(() => new ApiClient(), []);
@@ -562,6 +563,7 @@ function OrdersTable({
           <span>Side</span>
           <span>Qty</span>
           <span>Status</span>
+          <span>Attempts</span>
           <span>Action</span>
         </div>
         {orders.map((order) => (
@@ -569,15 +571,16 @@ function OrdersTable({
             <span>{order.symbol}</span>
             <span>{order.side}</span>
             <span>{order.quantity}</span>
-            <span><Badge tone={order.status === "FILLED" ? "green" : order.status === "REJECTED" ? "red" : "amber"}>{order.status}</Badge></span>
+            <span><Badge tone={orderTone(order.status)}>{order.status}</Badge></span>
+            <span>{order.submission_attempts}</span>
             <span>
-              {order.status === "PENDING_APPROVAL" ? (
+              {order.can_approve ? (
                 <button className="mini-button" onClick={() => onApprove(order.id)} disabled={loading}>
                   <CheckCircle2 size={15} />
-                  Approve
+                  {order.status === "SUBMISSION_FAILED" ? "Retry" : "Approve"}
                 </button>
               ) : (
-                order.broker_order_id ?? "-"
+                order.broker_order_id ?? order.message ?? formatDate(order.last_status_at)
               )}
             </span>
           </div>
@@ -611,7 +614,7 @@ function TransactionsTable({ transactions }: { transactions: TransactionView[] }
             <span>{item.symbol}</span>
             <span>{item.side}</span>
             <span>{item.quantity}</span>
-            <span>{item.status}</span>
+            <span><Badge tone={orderTone(item.status)}>{item.status}</Badge></span>
             <span>{item.message ?? "-"}</span>
           </div>
         ))}
@@ -647,7 +650,7 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Badge({ tone, children }: { tone: "blue" | "green" | "amber" | "red"; children: ReactNode }) {
+function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
@@ -670,7 +673,17 @@ function formatPercent(value: number) {
   return `${Math.round(Number(value) * 100)}%`;
 }
 
-function formatDate(value: string) {
+function orderTone(status: string): Tone {
+  if (status === "FILLED") return "green";
+  if (status === "REJECTED" || status === "SUBMISSION_FAILED") return "red";
+  if (status === "SUBMITTED" || status === "SUBMITTING") return "blue";
+  if (status === "APPROVED" || status === "PARTIALLY_FILLED") return "amber";
+  if (status === "CANCELED") return "slate";
+  return "amber";
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
   return new Intl.DateTimeFormat("ko-KR", {
     month: "2-digit",
     day: "2-digit",

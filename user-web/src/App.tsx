@@ -167,7 +167,7 @@ export default function App() {
     (total, position) => total + Number(position.market_price) * position.quantity,
     0
   );
-  const openOrders = orders.filter((order) => order.status === "PENDING_APPROVAL" || order.status === "SUBMITTED");
+  const openOrders = orders.filter((order) => !order.is_terminal);
 
   if (!bootstrapped) {
     return <div className="loading-screen">Loading Trade-pilot</div>;
@@ -693,13 +693,15 @@ function OrdersPanel({
               <span>{order.quantity} shares / {order.order_type}</span>
             </div>
             <Badge tone={orderTone(order.status)}>{order.status}</Badge>
-            {order.status === "PENDING_APPROVAL" ? (
+            {order.can_approve ? (
               <button className="mini-button" type="button" onClick={() => onApprove(order.id)} disabled={loading}>
                 <CheckCircle2 size={15} />
-                Approve
+                {order.status === "SUBMISSION_FAILED" ? "Retry" : "Approve"}
               </button>
             ) : (
-              <small>{order.broker_order_id ?? order.message ?? "-"}</small>
+              <small>
+                {order.broker_order_id ?? order.message ?? `Updated ${formatDateTime(order.last_status_at)}`}
+              </small>
             )}
           </article>
         ))}
@@ -767,8 +769,10 @@ function viewTitle(view: View) {
 
 function orderTone(status: string): Tone {
   if (status === "FILLED") return "green";
-  if (status === "REJECTED") return "red";
-  if (status === "SUBMITTED") return "blue";
+  if (status === "REJECTED" || status === "SUBMISSION_FAILED") return "red";
+  if (status === "SUBMITTED" || status === "SUBMITTING") return "blue";
+  if (status === "PARTIALLY_FILLED" || status === "APPROVED") return "amber";
+  if (status === "CANCELED") return "slate";
   return "amber";
 }
 
@@ -792,6 +796,16 @@ function formatKrw(value: MoneyValue | unknown) {
 
 function formatPercent(value: number) {
   return `${Math.round(Number(value) * 100)}%`;
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function formatValue(value: unknown) {

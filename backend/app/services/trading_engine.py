@@ -14,6 +14,20 @@ from app.schemas import (
     TradeDecisionPayload,
 )
 from app.services.agent_orchestrator import AgentOrchestrator
+from app.services.order_lifecycle import (
+    ORDER_APPROVED,
+    ORDER_CANCELED,
+    ORDER_FILLED,
+    ORDER_PARTIALLY_FILLED,
+    ORDER_PENDING_APPROVAL,
+    ORDER_REJECTED,
+    ORDER_SUBMISSION_FAILED,
+    ORDER_SUBMITTED,
+    ORDER_SUBMITTING,
+    can_approve,
+    initialize_order_status,
+    transition_order,
+)
 from app.services.risk import RiskManager
 
 
@@ -79,10 +93,17 @@ class TradingEngine:
             quantity=order_create.quantity,
             order_type=order_create.order_type,
             limit_price=order_create.limit_price,
-            status="PENDING_APPROVAL",
-            message="Manual order staged.",
+            status=ORDER_PENDING_APPROVAL,
         )
         self.db.add(order)
+        self.db.flush()
+        initialize_order_status(
+            self.db,
+            order,
+            ORDER_PENDING_APPROVAL,
+            event_type="manual_order_staged",
+            message="Manual order staged.",
+        )
         self.db.commit()
         self.db.refresh(order)
         return order
@@ -93,23 +114,61 @@ class TradingEngine:
         )
         if order is None:
             raise ValueError("Order not found.")
-        if order.status not in {"PENDING_APPROVAL", "REJECTED"}:
+        if not can_approve(order):
             return order
 
-        result = self.broker.place_order(
-            BrokerOrder(
-                symbol=order.symbol,
-                side=order.side,  # type: ignore[arg-type]
-                quantity=order.quantity,
-                order_type=order.order_type,  # type: ignore[arg-type]
-                limit_price=order.limit_price,
-            )
+        transition_order(
+            self.db,
+            order,
+            ORDER_APPROVED,
+            event_type="order_approved",
+            message="Order approved for broker submission.",
         )
-        order.status = result.status
-        order.broker_order_id = result.broker_order_id
-        order.message = result.message
+        order.submission_attempts += 1
+        transition_order(
+            self.db,
+            order,
+            ORDER_SUBMITTING,
+            event_type="broker_submit_started",
+            message=f"Submitting order to {self.settings.broker_mode}.",
+        )
+        self.db.flush()
 
-        if result.status in {"FILLED", "SUBMITTED"} and self.settings.broker_mode == "paper":
+        try:
+            result = self.broker.place_order(
+                BrokerOrder(
+                    symbol=order.symbol,
+                    side=order.side,  # type: ignore[arg-type]
+                    quantity=order.quantity,
+                    order_type=order.order_type,  # type: ignore[arg-type]
+                    limit_price=order.limit_price,
+                )
+            )
+        except Exception as exc:
+            transition_order(
+                self.db,
+                order,
+                ORDER_SUBMISSION_FAILED,
+                event_type="broker_submit_failed",
+                message=str(exc),
+                event_payload={"exception_type": type(exc).__name__},
+            )
+            self.db.commit()
+            self.db.refresh(order)
+            return order
+
+        next_status = self._normalize_broker_status(result.status)
+        transition_order(
+            self.db,
+            order,
+            next_status,
+            event_type="broker_submit_result",
+            message=result.message,
+            broker_order_id=result.broker_order_id,
+            event_payload={"broker_status": result.status},
+        )
+
+        if next_status == ORDER_FILLED and self.settings.broker_mode == "paper":
             self._upsert_paper_position(order)
 
         self.db.commit()
@@ -126,13 +185,33 @@ class TradingEngine:
             quantity=decision.quantity,
             order_type=decision.order_type,
             limit_price=decision.limit_price,
-            status="PENDING_APPROVAL",
-            message="Created from approved AI decision.",
+            status=ORDER_PENDING_APPROVAL,
         )
         self.db.add(order)
         self.db.flush()
+        initialize_order_status(
+            self.db,
+            order,
+            ORDER_PENDING_APPROVAL,
+            event_type="ai_decision_order_created",
+            message="Created from approved AI decision.",
+        )
         self.approve_order(order.id)
         return order
+
+    def _normalize_broker_status(self, broker_status: str) -> str:
+        normalized = broker_status.upper()
+        if normalized in {ORDER_SUBMITTED, "ACCEPTED"}:
+            return ORDER_SUBMITTED
+        if normalized in {ORDER_FILLED, "EXECUTED"}:
+            return ORDER_FILLED
+        if normalized in {ORDER_PARTIALLY_FILLED, "PARTIAL", "PARTIALLY_FILLED"}:
+            return ORDER_PARTIALLY_FILLED
+        if normalized in {ORDER_REJECTED, "REJECT"}:
+            return ORDER_REJECTED
+        if normalized in {ORDER_CANCELED, "CANCELLED"}:
+            return ORDER_CANCELED
+        return ORDER_SUBMISSION_FAILED
 
     def _upsert_paper_position(self, order: Order) -> None:
         price = Decimal(order.limit_price or Decimal("0"))
@@ -160,8 +239,13 @@ class TradingEngine:
             position.market_price = price
             return
 
+        if signed_quantity < 0:
+            position.quantity = new_quantity
+            position.market_price = price
+            return
+
         current_cost = Decimal(position.quantity) * position.avg_price
-        added_cost = Decimal(max(signed_quantity, 0)) * price
+        added_cost = Decimal(signed_quantity) * price
         position.quantity = new_quantity
         position.avg_price = (current_cost + added_cost) / Decimal(new_quantity)
         position.market_price = price
