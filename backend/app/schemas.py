@@ -46,6 +46,23 @@ class UserProfile(BaseModel):
     role: UserRole
 
 
+class UserProfileUpdate(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    new_password: str | None = Field(default=None, min_length=12, max_length=256)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        local_part, separator, domain = normalized.partition("@")
+        if not separator or not local_part or "." not in domain or domain.startswith("."):
+            raise ValueError("A valid email address is required.")
+        return normalized
+
+
 class LoginResponse(BaseModel):
     csrf_token: str
     token_type: Literal["cookie"] = "cookie"

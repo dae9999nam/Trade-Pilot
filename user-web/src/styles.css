@@ -120,13 +120,36 @@ button:disabled {
 .query-panel h3,
 .answer-panel h3,
 .artifact-card h3,
+.settings-panel h3,
 .orders-workspace h3,
 .order-card h3 {
   margin: 0;
 }
 
+.user-greeting {
+  margin-top: 14px;
+  min-height: 34px;
+  border: 1px solid #dde4ec;
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  font-size: 13px;
+  font-weight: 850;
+  max-width: 100%;
+}
+
+.user-greeting span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sidebar nav {
-  margin-top: 34px;
+  margin-top: 18px;
   display: grid;
   gap: 8px;
 }
@@ -242,6 +265,7 @@ button:disabled {
 .artifact-card,
 .metric-card,
 .source-panel,
+.settings-panel,
 .orders-workspace {
   border: 1px solid #dde4ec;
   border-radius: 8px;
@@ -253,8 +277,15 @@ button:disabled {
 .answer-panel,
 .artifact-card,
 .source-panel,
+.settings-panel,
 .orders-workspace {
   padding: 20px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
 }
 
 .metric-card {
@@ -702,6 +733,24 @@ dd {
   gap: 16px;
 }
 
+.settings-panel {
+  max-width: 720px;
+  display: grid;
+  gap: 18px;
+}
+
+.settings-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.settings-form .error-banner,
+.settings-form .success-banner,
+.settings-form .primary {
+  grid-column: 1 / -1;
+}
+
 .order-card {
   min-height: 86px;
   border: 1px solid #edf1f5;
@@ -768,12 +817,25 @@ dd {
   font-weight: 700;
 }
 
+.success-banner {
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  color: #166534;
+  background: #f0fdf4;
+  padding: 12px 14px;
+  font-weight: 700;
+}
+
 @media (max-width: 1180px) {
   .workspace-grid {
     grid-template-columns: 1fr;
   }
 
   .context-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -797,7 +859,8 @@ dd {
   .context-grid,
   .context-rail,
   .mini-metric-grid,
-  .pie-layout {
+  .pie-layout,
+  .settings-form {
     grid-template-columns: 1fr;
   }
 }
@@ -818,6 +881,10 @@ dd {
   }
 
   .sidebar nav {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -844,10 +911,12 @@ dd {
   .artifact-card,
   .metric-card,
   .source-panel,
+  .settings-panel,
   .orders-workspace,
   .order-card,
   .mini-metric,
-  .browser-artifact {
+  .browser-artifact,
+  .user-greeting {
     border-color: #2c3647;
     background: #171d28;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
@@ -939,6 +1008,10 @@ dd {
     border-color: #354255;
   }
 
+  .user-greeting {
+    color: #e6edf7;
+  }
+
   .badge.slate {
     background: #334155;
     color: #d7deea;
@@ -948,5 +1021,11 @@ dd {
     border-color: #7f1d1d;
     background: #3b1114;
     color: #fecaca;
+  }
+
+  .success-banner {
+    border-color: #166534;
+    background: #0f2f1c;
+    color: #bbf7d0;
   }
 }

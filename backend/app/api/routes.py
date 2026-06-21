@@ -8,15 +8,17 @@ from app.broker.factory import get_broker
 from app.core.auth import (
     authenticate,
     create_authenticated_session,
+    hash_password,
     logout_current_session,
     require_admin,
     register_user,
     require_auth,
+    verify_password,
 )
 from app.core.config import settings
 from app.db.session import get_db
 from app.market.data import MarketDataService
-from app.models import Order, OrderEvent, Position, TradeDecision
+from app.models import Order, OrderEvent, Position, TradeDecision, User, UserSession
 from app.schemas import (
     AssistantQueryRequest,
     AssistantQueryResponse,
@@ -33,6 +35,7 @@ from app.schemas import (
     RegisterRequest,
     TransactionView,
     UserProfile,
+    UserProfileUpdate,
 )
 from app.services.assistant_workspace import AssistantWorkspace
 from app.services.order_lifecycle import (
@@ -104,6 +107,38 @@ def logout(
 @router.get("/auth/me", response_model=UserProfile)
 def me(user: UserProfile = Depends(require_auth)) -> UserProfile:
     return user
+
+
+@router.patch("/auth/me", response_model=UserProfile)
+def update_me(
+    payload: UserProfileUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> UserProfile:
+    user_row = db.get(User, user.id)
+    if user_row is None or not user_row.is_active:
+        raise HTTPException(status_code=401, detail="Invalid or expired session.")
+    if not verify_password(payload.current_password, user_row.password_hash):
+        raise HTTPException(status_code=403, detail="Current password is incorrect.")
+
+    changed = False
+    if payload.email and payload.email != user_row.email:
+        existing_user_id = db.scalar(select(User.id).where(User.email == payload.email))
+        if existing_user_id is not None and existing_user_id != user_row.id:
+            raise HTTPException(status_code=409, detail="User already exists.")
+        user_row.email = payload.email
+        changed = True
+
+    if payload.new_password:
+        user_row.password_hash = hash_password(payload.new_password)
+        _revoke_other_sessions(db, request, user_row.id)
+        changed = True
+
+    if changed:
+        db.commit()
+        db.refresh(user_row)
+    return UserProfile(id=user_row.id, username=user_row.email, email=user_row.email, role=user_row.role)  # type: ignore[arg-type]
 
 
 @router.post("/decisions/run", response_model=DecisionResponse)
@@ -367,3 +402,22 @@ def _decision_view(decision: TradeDecision) -> DecisionListItem:
         risk_reasons=decision.risk_reasons,
         created_at=decision.created_at.isoformat(),
     )
+
+
+def _revoke_other_sessions(db: Session, request: Request, user_id: int) -> None:
+    from datetime import UTC, datetime
+    from app.core.auth import _token_hash
+
+    session_token = request.cookies.get(settings.session_cookie_name)
+    current_hash = _token_hash(session_token) if session_token else None
+    sessions = db.scalars(
+        select(UserSession).where(
+            UserSession.user_id == user_id,
+            UserSession.revoked_at.is_(None),
+        )
+    ).all()
+    revoked_at = datetime.now(UTC)
+    for session in sessions:
+        if current_hash and session.session_token_hash == current_hash:
+            continue
+        session.revoked_at = revoked_at

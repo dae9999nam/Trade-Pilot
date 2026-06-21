@@ -16,8 +16,10 @@ import {
   RefreshCw,
   Search,
   Send,
+  Settings as SettingsIcon,
   ShieldCheck,
   Table2,
+  UserRound,
   WalletCards,
   XCircle
 } from "lucide-react";
@@ -35,11 +37,11 @@ import type {
 } from "./api";
 
 type Tone = "blue" | "green" | "amber" | "red" | "slate";
-type View = "workspace" | "orders" | "data";
+type View = "positions" | "orders" | "workspace" | "settings";
 
 export default function App() {
   const api = useMemo(() => new ApiClient(), []);
-  const [view, setView] = useState<View>("workspace");
+  const [view, setView] = useState<View>("positions");
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -102,6 +104,24 @@ export default function App() {
       await refresh(response.user);
     } catch (nextError) {
       setError(String(nextError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateProfile(payload: { email: string; currentPassword: string; newPassword?: string }) {
+    setLoading(true);
+    setError(null);
+    try {
+      const nextUser = await api.updateProfile({
+        current_password: payload.currentPassword,
+        email: payload.email,
+        new_password: payload.newPassword || undefined
+      });
+      setUser(nextUser);
+    } catch (nextError) {
+      setError(String(nextError));
+      throw nextError;
     } finally {
       setLoading(false);
     }
@@ -209,6 +229,7 @@ export default function App() {
     0
   );
   const openOrders = orders.filter((order) => !order.is_terminal);
+  const displayName = user ? user.email.split("@")[0] || user.email : "";
 
   if (!bootstrapped) {
     return <div className="loading-screen">Loading Trade-pilot</div>;
@@ -231,17 +252,22 @@ export default function App() {
         <div>
           <p className="eyebrow">Trade-pilot</p>
           <h1>Analyst OS</h1>
+          <div className="user-greeting">
+            <UserRound size={16} />
+            <span>Hello, {displayName}</span>
+          </div>
         </div>
         <nav>
-          <NavButton icon={<Bot size={17} />} label="Workspace" active={view === "workspace"} onClick={() => setView("workspace")} />
+          <NavButton icon={<WalletCards size={17} />} label="Holdings / Positions" active={view === "positions"} onClick={() => setView("positions")} />
           <NavButton icon={<ListChecks size={17} />} label="Orders" active={view === "orders"} onClick={() => setView("orders")} />
-          <NavButton icon={<Database size={17} />} label="Data" active={view === "data"} onClick={() => setView("data")} />
+          <NavButton icon={<Bot size={17} />} label="Workspace" active={view === "workspace"} onClick={() => setView("workspace")} />
         </nav>
         <div className="sidebar-foot">
           <Badge tone={config?.live_trading_enabled ? "green" : "amber"}>
             {config?.live_trading_enabled ? "Live enabled" : "Guarded"}
           </Badge>
           <span>{config?.broker_mode ?? "paper"}</span>
+          <NavButton icon={<SettingsIcon size={17} />} label="Settings" active={view === "settings"} onClick={() => setView("settings")} />
           <button className="logout-button" type="button" onClick={logout} disabled={loading}>
             <LogOut size={15} />
             Sign out
@@ -262,6 +288,17 @@ export default function App() {
         </header>
 
         {error ? <div className="error-banner">{error}</div> : null}
+
+        {view === "positions" ? (
+          <section className="stack">
+            <PortfolioOverview
+              openOrders={openOrders.length}
+              portfolioValue={portfolioValue}
+              positions={positions}
+            />
+            <PositionsPanel positions={positions} />
+          </section>
+        ) : null}
 
         {view === "workspace" ? (
           <section className="workspace-grid">
@@ -303,17 +340,12 @@ export default function App() {
           />
         ) : null}
 
-        {view === "data" ? (
+        {view === "settings" ? (
           <section className="stack">
-            <PositionsPanel positions={positions} />
-            <OrdersPanel
-              eventsByOrder={orderEvents}
+            <SettingsPanel
               loading={loading}
-              onApprove={approve}
-              onCancel={cancelOrder}
-              onLoadEvents={loadOrderEvents}
-              onRefresh={refreshOrder}
-              orders={orders}
+              onSubmit={updateProfile}
+              user={user}
             />
           </section>
         ) : null}
@@ -725,6 +757,129 @@ function PositionsPanel({ positions }: { positions: PositionView[] }) {
   );
 }
 
+function PortfolioOverview({
+  openOrders,
+  portfolioValue,
+  positions
+}: {
+  openOrders: number;
+  portfolioValue: number;
+  positions: PositionView[];
+}) {
+  const activePositions = positions.filter((position) => position.quantity !== 0).length;
+  const costBasis = positions.reduce(
+    (total, position) => total + Number(position.avg_price) * position.quantity,
+    0
+  );
+  const pnl = portfolioValue - costBasis;
+
+  return (
+    <section className="summary-grid">
+      <Metric icon={<WalletCards />} label="Market value" value={formatKrw(portfolioValue)} />
+      <Metric icon={<Activity />} label="Positions" value={String(activePositions)} />
+      <Metric icon={<Clock3 />} label="Open orders" value={String(openOrders)} />
+      <Metric icon={<ShieldCheck />} label="Unrealized P/L" value={formatKrw(pnl)} />
+    </section>
+  );
+}
+
+function SettingsPanel({
+  loading,
+  onSubmit,
+  user
+}: {
+  loading: boolean;
+  onSubmit: (payload: { email: string; currentPassword: string; newPassword?: string }) => Promise<void>;
+  user: UserProfile;
+}) {
+  const [email, setEmail] = useState(user.email);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setLocalError(null);
+    setSaved(false);
+
+    if (!currentPassword) {
+      setLocalError("Current password is required.");
+      return;
+    }
+    if (newPassword && newPassword !== confirmPassword) {
+      setLocalError("New passwords do not match.");
+      return;
+    }
+    if (newPassword && newPassword.length < 12) {
+      setLocalError("New password must be at least 12 characters.");
+      return;
+    }
+
+    await onSubmit({
+      email,
+      currentPassword,
+      newPassword: newPassword || undefined
+    });
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setSaved(true);
+  }
+
+  return (
+    <section className="settings-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Account</p>
+          <h3>Settings</h3>
+        </div>
+        <Badge tone="slate">{user.role}</Badge>
+      </div>
+      <form className="settings-form" onSubmit={submit}>
+        <label>
+          Email
+          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" />
+        </label>
+        <label>
+          Current password
+          <input
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+            type="password"
+            autoComplete="current-password"
+          />
+        </label>
+        <label>
+          New password
+          <input
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+            type="password"
+            autoComplete="new-password"
+            placeholder="Leave blank to keep current password"
+          />
+        </label>
+        <label>
+          Confirm new password
+          <input
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            type="password"
+            autoComplete="new-password"
+          />
+        </label>
+        {localError ? <div className="error-banner">{localError}</div> : null}
+        {saved ? <div className="success-banner">Settings updated.</div> : null}
+        <button className="primary" type="submit" disabled={loading}>
+          Save changes
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function OrdersPanel({
   eventsByOrder,
   orders,
@@ -867,9 +1022,10 @@ function artifactIcon(type: string) {
 }
 
 function viewTitle(view: View) {
-  if (view === "orders") return "Execution";
-  if (view === "data") return "Data Explorer";
-  return "Analyst Workspace";
+  if (view === "positions") return "Holdings / Positions";
+  if (view === "orders") return "Orders";
+  if (view === "settings") return "Settings";
+  return "Workspace";
 }
 
 function orderTone(status: string): Tone {

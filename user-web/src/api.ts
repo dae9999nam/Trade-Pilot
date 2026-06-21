@@ -26,6 +26,12 @@ export type LoginResponse = {
   user: UserProfile;
 };
 
+export type ProfileUpdateRequest = {
+  current_password: string;
+  email?: string;
+  new_password?: string;
+};
+
 export type AgentVerdict = {
   role: string;
   verdict: "bullish" | "bearish" | "neutral" | "block";
@@ -185,6 +191,10 @@ export class ApiClient {
     return this.get("/api/auth/me");
   }
 
+  async updateProfile(payload: ProfileUpdateRequest): Promise<UserProfile> {
+    return this.patch("/api/auth/me", payload);
+  }
+
   async config(): Promise<PublicConfig> {
     return this.get("/api/config");
   }
@@ -235,6 +245,19 @@ export class ApiClient {
   private async post<T>(path: string, payload: unknown): Promise<T> {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...csrfHeader()
+      },
+      body: JSON.stringify(payload)
+    });
+    return this.parse<T>(response);
+  }
+
+  private async patch<T>(path: string, payload: unknown): Promise<T> {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "PATCH",
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
