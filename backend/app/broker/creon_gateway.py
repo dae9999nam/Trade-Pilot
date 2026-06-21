@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import httpx
 
-from app.broker.base import Broker, BrokerOrder, BrokerOrderResult
+from app.broker.base import Broker, BrokerOrder, BrokerOrderResult, BrokerOrderStatusResult
 from app.core.config import Settings
 from app.schemas import MarketSnapshot
 
@@ -56,6 +56,34 @@ class CreonGatewayBroker(Broker):
             broker_order_id=data.get("broker_order_id"),
             status=data["status"],
             message=data["message"],
+        )
+
+    def get_order_status(self, broker_order_id: str) -> BrokerOrderStatusResult:
+        response = self.client.get(f"/orders/{broker_order_id}")
+        self._raise_for_gateway_error(response)
+        data = response.json()
+        return BrokerOrderStatusResult(
+            broker_order_id=data.get("broker_order_id"),
+            status=data["status"],
+            message=data["message"],
+            filled_quantity=data.get("filled_quantity"),
+            remaining_quantity=data.get("remaining_quantity"),
+            as_of=data.get("as_of"),
+            raw_payload=data.get("raw_payload"),
+        )
+
+    def cancel_order(self, broker_order_id: str) -> BrokerOrderStatusResult:
+        response = self.client.post(f"/orders/{broker_order_id}/cancel")
+        self._raise_for_gateway_error(response)
+        data = response.json()
+        return BrokerOrderStatusResult(
+            broker_order_id=data.get("broker_order_id"),
+            status=data["status"],
+            message=data["message"],
+            filled_quantity=data.get("filled_quantity"),
+            remaining_quantity=data.get("remaining_quantity"),
+            as_of=data.get("as_of"),
+            raw_payload=data.get("raw_payload"),
         )
 
     def _raise_for_gateway_error(self, response: httpx.Response) -> None:

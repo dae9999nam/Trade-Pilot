@@ -103,6 +103,32 @@ Response body: `OrderResponse`
 | `creon_status_code` | integer or null | CREON DIB status code from the order request. |
 | `submitted_at` | datetime or null | Gateway timestamp for the order response. |
 
+### `GET /orders/{broker_order_id}`
+
+Order status refresh endpoint scaffold. The route exists so the backend can use
+one broker lifecycle interface, but the current gateway returns
+`creon_order_status_not_implemented` until the CREON COM status lookup is
+implemented.
+
+Response body shape: `OrderStatusResponse`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `broker_order_id` | string or null | CREON order number. |
+| `status` | string | Normalized broker status when implemented. |
+| `message` | string | Gateway message. |
+| `filled_quantity` | integer or null | Filled quantity when implemented. |
+| `remaining_quantity` | integer or null | Remaining quantity when implemented. |
+| `creon_status_code` | integer or null | CREON status code when available. |
+| `as_of` | datetime or null | Gateway observation timestamp. |
+| `raw_payload` | object or null | CREON-specific diagnostic payload. |
+
+### `POST /orders/{broker_order_id}/cancel`
+
+Order cancellation endpoint scaffold. The route exists but currently returns
+`creon_order_cancel_not_implemented`. Until CREON COM cancel mapping is
+implemented and tested, live orders must be canceled directly in CREON Plus.
+
 ## Error payload
 
 Gateway runtime errors return HTTP 503 with structured detail:
@@ -121,6 +147,7 @@ Gateway runtime errors return HTTP 503 with structured detail:
 | Process-wide COM lock | CREON COM calls are serialized to avoid concurrent access to the HTS COM session. |
 | Quote retry only | Quotes are read-only and can retry bounded transient failures. |
 | No automatic order retry | Prevents duplicate live orders when a broker response is ambiguous. |
+| Status/cancel scaffold is explicit | Backend can record lifecycle events without pretending unsupported CREON COM operations succeeded. |
 | Constant-time token comparison | Reduces token comparison timing leakage. |
 | `/ready` separated from `/health` | Liveness remains cheap; readiness can touch CREON COM. |
 

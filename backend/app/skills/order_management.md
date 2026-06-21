@@ -3,8 +3,8 @@
 ## Purpose
 
 Use this skill when the user asks to stage a manual order, approve or retry an
-approvable order, list orders, inspect order events, or understand order
-lifecycle status.
+approvable order, cancel an open order, refresh broker status, list orders,
+inspect order events, or understand order lifecycle status.
 
 ## Endpoints
 
@@ -45,6 +45,25 @@ Behavior:
 
 Approval writes `order_events` for approval, broker submission start, and broker
 result or failure.
+
+### `POST /api/orders/{order_id}/cancel`
+
+Cancels a cancelable order.
+
+| Existing status | Behavior |
+| --- | --- |
+| `PENDING_APPROVAL` / `APPROVED` / `SUBMISSION_FAILED` | Local cancel; no broker call. |
+| `SUBMITTED` / `PARTIALLY_FILLED` | Calls active broker `cancel_order` when a `broker_order_id` exists. |
+| Terminal statuses | Return the order unchanged. |
+
+Cancel attempts write `order_events` with `order_canceled`,
+`broker_cancel_result`, or `broker_cancel_failed`.
+
+### `POST /api/orders/{order_id}/refresh`
+
+Refreshes a non-terminal order from the active broker when a `broker_order_id`
+exists. Local-only states record an `order_status_refreshed` event and keep the
+current status. Broker failures record `broker_status_refresh_failed`.
 
 ### `GET /api/orders`
 
@@ -99,6 +118,7 @@ Response body: array of `OrderEventView`
 | `last_status_at` | datetime or null | Last lifecycle status change timestamp. |
 | `submission_attempts` | integer | Number of broker submission attempts. |
 | `can_approve` | boolean | Whether `/approve` can submit or retry this order. |
+| `can_cancel` | boolean | Whether `/cancel` can cancel this order. |
 | `is_terminal` | boolean | Whether the order lifecycle is complete. |
 | `created_at` | datetime or null | Order creation timestamp. |
 | `updated_at` | datetime or null | Last row update timestamp. |
@@ -125,6 +145,11 @@ Response body: array of `OrderEventView`
 | `creon` | Direct CREON COM order is submitted. Requires Windows 32-bit Python and live-trading gates. |
 | `creon_gateway` | Backend sends the order to the Windows gateway `/orders` endpoint. |
 
+Broker status refresh and cancel are available through the backend interface.
+`paper` supports both for local/demo flows. `creon_gateway` exposes HTTP routes
+for status/cancel, but the gateway currently returns explicit not-implemented
+errors until CREON COM status/cancel mapping is completed.
+
 Broker-returned statuses are normalized before storage: `ACCEPTED` maps to
 `SUBMITTED`, `EXECUTED` maps to `FILLED`, partial-fill variants map to
 `PARTIALLY_FILLED`, reject variants map to `REJECTED`, and unknown statuses map
@@ -138,6 +163,10 @@ to `SUBMISSION_FAILED`.
 - Approval is the action that sends an order to the broker.
 - Do not retry a terminal order. Only `can_approve=true` orders are valid
   approve/retry candidates.
+- Do not cancel a terminal order. Only `can_cancel=true` orders are valid cancel
+  candidates.
+- Status refresh is observational. If refresh fails, the order status remains
+  unchanged and the failure is stored as an event.
 - In live modes, inspect `order_events`, gateway request IDs, and broker account
   state before retrying `SUBMISSION_FAILED`; ambiguous network failures can
   create duplicate-order risk.

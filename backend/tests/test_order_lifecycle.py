@@ -3,7 +3,7 @@ from decimal import Decimal
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.broker.base import Broker, BrokerOrder, BrokerOrderResult
+from app.broker.base import Broker, BrokerOrder, BrokerOrderResult, BrokerOrderStatusResult
 from app.broker.paper import PaperBroker
 from app.core.config import Settings
 from app.db.base import Base
@@ -11,9 +11,12 @@ from app.models import OrderEvent, Position
 from app.schemas import MarketSnapshot, OrderCreate
 from app.services.order_lifecycle import (
     ORDER_FILLED,
+    ORDER_CANCELED,
     ORDER_PENDING_APPROVAL,
+    ORDER_SUBMITTED,
     ORDER_SUBMISSION_FAILED,
     can_approve,
+    can_cancel,
     is_terminal,
 )
 from app.services.trading_engine import TradingEngine
@@ -105,6 +108,74 @@ def test_broker_submission_failure_remains_approvable_for_retry() -> None:
     assert failure_events[0].event_payload == {"exception_type": "RuntimeError"}
 
 
+def test_pending_order_can_be_canceled_locally() -> None:
+    db = _session()
+    engine = TradingEngine(
+        db,
+        PaperBroker(),
+        Settings(openai_api_key=None, broker_mode="paper"),
+        user_id=1,
+    )
+    order = engine.create_manual_order(
+        OrderCreate(
+            symbol="A005930",
+            side="BUY",
+            quantity=1,
+            order_type="LIMIT",
+            limit_price=Decimal("70000"),
+        )
+    )
+
+    canceled_order = engine.cancel_order(order.id)
+    cancel_events = db.scalars(
+        select(OrderEvent).where(OrderEvent.order_id == order.id, OrderEvent.event_type == "order_canceled")
+    ).all()
+
+    assert canceled_order.status == ORDER_CANCELED
+    assert canceled_order.canceled_at is not None
+    assert is_terminal(canceled_order)
+    assert not can_cancel(canceled_order)
+    assert cancel_events
+
+
+def test_refresh_submitted_order_can_fill_and_update_paper_position() -> None:
+    db = _session()
+    engine = TradingEngine(
+        db,
+        SubmittedThenFilledBroker(),
+        Settings(openai_api_key=None, broker_mode="paper"),
+        user_id=1,
+    )
+    order = engine.create_manual_order(
+        OrderCreate(
+            symbol="A005930",
+            side="BUY",
+            quantity=2,
+            order_type="LIMIT",
+            limit_price=Decimal("70000"),
+        )
+    )
+
+    submitted_order = engine.approve_order(order.id)
+    assert submitted_order.status == ORDER_SUBMITTED
+    assert db.scalar(select(Position).where(Position.symbol == "A005930")) is None
+
+    refreshed_order = engine.refresh_order_status(order.id)
+    position = db.scalar(select(Position).where(Position.symbol == "A005930"))
+    refresh_events = db.scalars(
+        select(OrderEvent).where(
+            OrderEvent.order_id == order.id,
+            OrderEvent.event_type == "broker_status_refreshed",
+        )
+    ).all()
+
+    assert refreshed_order.status == ORDER_FILLED
+    assert refreshed_order.filled_at is not None
+    assert position is not None
+    assert position.quantity == 2
+    assert refresh_events
+
+
 class FailingBroker(Broker):
     name = "failing"
 
@@ -113,3 +184,24 @@ class FailingBroker(Broker):
 
     def place_order(self, order: BrokerOrder) -> BrokerOrderResult:
         raise RuntimeError("gateway unavailable")
+
+
+class SubmittedThenFilledBroker(Broker):
+    name = "submitted_then_filled"
+
+    def get_quote(self, symbol: str) -> MarketSnapshot:
+        return MarketSnapshot(symbol=symbol, price=Decimal("70000"), source=self.name)
+
+    def place_order(self, order: BrokerOrder) -> BrokerOrderResult:
+        return BrokerOrderResult(
+            broker_order_id="BROKER-SUBMITTED-1",
+            status="SUBMITTED",
+            message="Accepted by test broker.",
+        )
+
+    def get_order_status(self, broker_order_id: str) -> BrokerOrderStatusResult:
+        return BrokerOrderStatusResult(
+            broker_order_id=broker_order_id,
+            status="FILLED",
+            message="Filled by test broker.",
+        )

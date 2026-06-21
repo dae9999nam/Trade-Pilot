@@ -25,6 +25,13 @@ ORDER_OPEN_STATUSES = {
 }
 ORDER_TERMINAL_STATUSES = {ORDER_FILLED, ORDER_REJECTED, ORDER_CANCELED}
 ORDER_APPROVABLE_STATUSES = {ORDER_PENDING_APPROVAL, ORDER_SUBMISSION_FAILED}
+ORDER_CANCELABLE_STATUSES = {
+    ORDER_PENDING_APPROVAL,
+    ORDER_APPROVED,
+    ORDER_SUBMITTED,
+    ORDER_PARTIALLY_FILLED,
+    ORDER_SUBMISSION_FAILED,
+}
 
 ORDER_TRANSITIONS: dict[str, set[str]] = {
     ORDER_PENDING_APPROVAL: {ORDER_APPROVED, ORDER_CANCELED},
@@ -54,6 +61,10 @@ def can_transition(from_status: str, to_status: str) -> bool:
 
 def can_approve(order: Order) -> bool:
     return order.status in ORDER_APPROVABLE_STATUSES
+
+
+def can_cancel(order: Order) -> bool:
+    return order.status in ORDER_CANCELABLE_STATUSES
 
 
 def is_terminal(order: Order) -> bool:

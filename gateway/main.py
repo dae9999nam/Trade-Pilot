@@ -13,6 +13,7 @@ from schemas import (
     GatewayReadinessResponse,
     OrderRequest,
     OrderResponse,
+    OrderStatusResponse,
     QuoteResponse,
 )
 
@@ -89,3 +90,13 @@ def quote(symbol: str = Path(min_length=2, max_length=16)) -> QuoteResponse:
 @app.post("/orders", response_model=OrderResponse, dependencies=[Depends(require_token)])
 def orders(payload: OrderRequest) -> OrderResponse:
     return client.order(payload)
+
+
+@app.get("/orders/{broker_order_id}", response_model=OrderStatusResponse, dependencies=[Depends(require_token)])
+def order_status(broker_order_id: str = Path(min_length=1, max_length=64)) -> OrderStatusResponse:
+    return client.order_status(broker_order_id)
+
+
+@app.post("/orders/{broker_order_id}/cancel", response_model=OrderStatusResponse, dependencies=[Depends(require_token)])
+def cancel_order(broker_order_id: str = Path(min_length=1, max_length=64)) -> OrderStatusResponse:
+    return client.cancel_order(broker_order_id)

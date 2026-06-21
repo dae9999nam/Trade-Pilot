@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from app.schemas import MarketSnapshot
 
@@ -22,6 +23,17 @@ class BrokerOrderResult:
     message: str
 
 
+@dataclass(frozen=True)
+class BrokerOrderStatusResult:
+    broker_order_id: str | None
+    status: str
+    message: str
+    filled_quantity: int | None = None
+    remaining_quantity: int | None = None
+    as_of: datetime | None = None
+    raw_payload: dict[str, Any] | None = None
+
+
 class Broker(ABC):
     name: str
 
@@ -33,3 +45,8 @@ class Broker(ABC):
     def place_order(self, order: BrokerOrder) -> BrokerOrderResult:
         raise NotImplementedError
 
+    def get_order_status(self, broker_order_id: str) -> BrokerOrderStatusResult:
+        raise NotImplementedError(f"{self.name} broker does not support order status refresh.")
+
+    def cancel_order(self, broker_order_id: str) -> BrokerOrderStatusResult:
+        raise NotImplementedError(f"{self.name} broker does not support order cancellation.")

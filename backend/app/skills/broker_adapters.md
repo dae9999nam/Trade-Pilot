@@ -36,6 +36,26 @@ order submission path.
 | `status` | string | Broker submission status. |
 | `message` | string | Broker or adapter message. |
 
+`BrokerOrderStatusResult`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `broker_order_id` | string or null | External broker order ID. |
+| `status` | string | Broker-observed order status. |
+| `message` | string | Broker or adapter message. |
+| `filled_quantity` | integer or null | Filled quantity when the broker provides it. |
+| `remaining_quantity` | integer or null | Remaining open quantity when available. |
+| `as_of` | datetime or null | Broker/gateway observation timestamp. |
+| `raw_payload` | object or null | Broker-specific diagnostic payload. |
+
+Order status refresh and cancellation:
+
+| Broker mode | Status refresh | Cancel |
+| --- | --- | --- |
+| `paper` | Supported for local/demo orders. | Supported for local/demo orders. |
+| `creon` | Not implemented in direct adapter. | Not implemented in direct adapter. |
+| `creon_gateway` | Calls gateway `GET /orders/{broker_order_id}`. Gateway currently returns not-implemented until CREON COM mapping is added. | Calls gateway `POST /orders/{broker_order_id}/cancel`. Gateway currently returns not-implemented until CREON COM mapping is added. |
+
 ## Live trading requirements
 
 | Requirement | Applies to |

@@ -18,7 +18,8 @@ import {
   Send,
   ShieldCheck,
   Table2,
-  WalletCards
+  WalletCards,
+  XCircle
 } from "lucide-react";
 
 import { ApiClient } from "./api";
@@ -26,6 +27,7 @@ import type {
   AssistantArtifact,
   AssistantQueryResponse,
   MoneyValue,
+  OrderEventView,
   OrderView,
   PositionView,
   PublicConfig,
@@ -43,6 +45,7 @@ export default function App() {
   const [bootstrapped, setBootstrapped] = useState(false);
   const [positions, setPositions] = useState<PositionView[]>([]);
   const [orders, setOrders] = useState<OrderView[]>([]);
+  const [orderEvents, setOrderEvents] = useState<Record<number, OrderEventView[]>>({});
   const [assistantResponse, setAssistantResponse] = useState<AssistantQueryResponse | null>(null);
   const [query, setQuery] = useState("A005930을 분석하고 매수, 매도, 보유 중 어떤 선택이 적절한지 알려줘.");
   const [symbol, setSymbol] = useState("A005930");
@@ -58,6 +61,7 @@ export default function App() {
     if (!currentUser) {
       setPositions([]);
       setOrders([]);
+      setOrderEvents({});
       return;
     }
 
@@ -115,6 +119,7 @@ export default function App() {
       setAssistantResponse(null);
       setPositions([]);
       setOrders([]);
+      setOrderEvents({});
       setLoading(false);
     }
   }
@@ -156,11 +161,47 @@ export default function App() {
     try {
       await api.approveOrder(orderId);
       await refresh();
+      await loadOrderEvents(orderId);
     } catch (nextError) {
       setError(String(nextError));
     } finally {
       setLoading(false);
     }
+  }
+
+  async function cancelOrder(orderId: number) {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await api.cancelOrder(orderId);
+      await refresh();
+      await loadOrderEvents(orderId);
+    } catch (nextError) {
+      setError(String(nextError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshOrder(orderId: number) {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await api.refreshOrder(orderId);
+      await refresh();
+      await loadOrderEvents(orderId);
+    } catch (nextError) {
+      setError(String(nextError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadOrderEvents(orderId: number) {
+    const events = await api.orderEvents(orderId);
+    setOrderEvents((current) => ({ ...current, [orderId]: events }));
   }
 
   const portfolioValue = positions.reduce(
@@ -250,12 +291,30 @@ export default function App() {
           </section>
         ) : null}
 
-        {view === "orders" ? <OrdersPanel orders={orders} loading={loading} onApprove={approve} /> : null}
+        {view === "orders" ? (
+          <OrdersPanel
+            eventsByOrder={orderEvents}
+            loading={loading}
+            onApprove={approve}
+            onCancel={cancelOrder}
+            onLoadEvents={loadOrderEvents}
+            onRefresh={refreshOrder}
+            orders={orders}
+          />
+        ) : null}
 
         {view === "data" ? (
           <section className="stack">
             <PositionsPanel positions={positions} />
-            <OrdersPanel orders={orders} loading={loading} onApprove={approve} />
+            <OrdersPanel
+              eventsByOrder={orderEvents}
+              loading={loading}
+              onApprove={approve}
+              onCancel={cancelOrder}
+              onLoadEvents={loadOrderEvents}
+              onRefresh={refreshOrder}
+              orders={orders}
+            />
           </section>
         ) : null}
       </main>
@@ -667,13 +726,21 @@ function PositionsPanel({ positions }: { positions: PositionView[] }) {
 }
 
 function OrdersPanel({
+  eventsByOrder,
   orders,
   loading,
-  onApprove
+  onApprove,
+  onCancel,
+  onLoadEvents,
+  onRefresh
 }: {
+  eventsByOrder: Record<number, OrderEventView[]>;
   orders: OrderView[];
   loading: boolean;
   onApprove: (orderId: number) => void;
+  onCancel: (orderId: number) => void;
+  onLoadEvents: (orderId: number) => void;
+  onRefresh: (orderId: number) => void;
 }) {
   return (
     <section className="orders-workspace">
@@ -687,26 +754,64 @@ function OrdersPanel({
         {orders.length === 0 ? <div className="empty-row">No orders</div> : null}
         {orders.map((order) => (
           <article className="order-card" key={order.id}>
-            <div>
-              <p className="eyebrow">{order.mode}</p>
-              <h3>{order.symbol} {order.side}</h3>
-              <span>{order.quantity} shares / {order.order_type}</span>
+            <div className="order-main">
+              <div>
+                <p className="eyebrow">{order.mode}</p>
+                <h3>{order.symbol} {order.side}</h3>
+                <span>{order.quantity} shares / {order.order_type}</span>
+              </div>
+              <div className="order-meta">
+                <Badge tone={orderTone(order.status)}>{order.status}</Badge>
+                <small>{order.broker_order_id ?? order.message ?? `Updated ${formatDateTime(order.last_status_at)}`}</small>
+              </div>
+              <div className="order-actions">
+                {order.can_approve ? (
+                  <button className="mini-button" type="button" onClick={() => onApprove(order.id)} disabled={loading}>
+                    <CheckCircle2 size={15} />
+                    {order.status === "SUBMISSION_FAILED" ? "Retry" : "Approve"}
+                  </button>
+                ) : null}
+                {!order.is_terminal ? (
+                  <button className="mini-button" type="button" onClick={() => onRefresh(order.id)} disabled={loading}>
+                    <RefreshCw size={15} />
+                    Refresh
+                  </button>
+                ) : null}
+                {order.can_cancel ? (
+                  <button className="mini-button" type="button" onClick={() => onCancel(order.id)} disabled={loading}>
+                    <XCircle size={15} />
+                    Cancel
+                  </button>
+                ) : null}
+                <button className="mini-button" type="button" onClick={() => onLoadEvents(order.id)} disabled={loading}>
+                  <Clock3 size={15} />
+                  Timeline
+                </button>
+              </div>
             </div>
-            <Badge tone={orderTone(order.status)}>{order.status}</Badge>
-            {order.can_approve ? (
-              <button className="mini-button" type="button" onClick={() => onApprove(order.id)} disabled={loading}>
-                <CheckCircle2 size={15} />
-                {order.status === "SUBMISSION_FAILED" ? "Retry" : "Approve"}
-              </button>
-            ) : (
-              <small>
-                {order.broker_order_id ?? order.message ?? `Updated ${formatDateTime(order.last_status_at)}`}
-              </small>
-            )}
+            {eventsByOrder[order.id] ? <OrderTimeline events={eventsByOrder[order.id]} /> : null}
           </article>
         ))}
       </div>
     </section>
+  );
+}
+
+function OrderTimeline({ events }: { events: OrderEventView[] }) {
+  if (events.length === 0) {
+    return <div className="order-timeline empty-row">No events</div>;
+  }
+
+  return (
+    <div className="order-timeline">
+      {events.map((event) => (
+        <div className="order-event" key={event.id}>
+          <span>{formatDateTime(event.created_at)}</span>
+          <strong>{event.to_status}</strong>
+          <small>{event.event_type}{event.message ? ` / ${event.message}` : ""}</small>
+        </div>
+      ))}
+    </div>
   );
 }
 

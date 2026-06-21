@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Iterator
 
 from config import settings
-from schemas import GatewayRuntimeStatus, OrderRequest, OrderResponse, QuoteResponse
+from schemas import GatewayRuntimeStatus, OrderRequest, OrderResponse, OrderStatusResponse, QuoteResponse
 
 
 _COM_LOCK = threading.RLock()
@@ -128,6 +128,22 @@ class CreonClient:
     def order(self, request: OrderRequest) -> OrderResponse:
         self._ensure_runtime(require_account=True)
         return self._order_once(request)
+
+    def order_status(self, broker_order_id: str) -> OrderStatusResponse:
+        self._ensure_runtime(require_account=True)
+        raise CreonConfigurationError(
+            "CREON order status refresh is not implemented in the gateway yet. "
+            "Use the CREON Plus order book manually before retrying or reconciling live orders.",
+            code="creon_order_status_not_implemented",
+        )
+
+    def cancel_order(self, broker_order_id: str) -> OrderStatusResponse:
+        self._ensure_runtime(require_account=True)
+        raise CreonConfigurationError(
+            "CREON order cancellation is not implemented in the gateway yet. "
+            "Cancel live orders directly in CREON Plus until this endpoint is implemented.",
+            code="creon_order_cancel_not_implemented",
+        )
 
     def _ensure_runtime(self, *, require_account: bool) -> None:
         if platform.system() != "Windows":

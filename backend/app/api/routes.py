@@ -40,6 +40,7 @@ from app.services.order_lifecycle import (
     ORDER_OPEN_STATUSES,
     ORDER_REJECTED,
     can_approve,
+    can_cancel,
     is_terminal,
 )
 from app.services.trading_engine import TradingEngine
@@ -232,6 +233,32 @@ def approve_order(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.post("/orders/{order_id}/cancel", response_model=OrderView)
+def cancel_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> OrderView:
+    try:
+        order = TradingEngine(db, get_broker(), settings, user.id).cancel_order(order_id)
+        return _order_view(order)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/orders/{order_id}/refresh", response_model=OrderView)
+def refresh_order_status(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> OrderView:
+    try:
+        order = TradingEngine(db, get_broker(), settings, user.id).refresh_order_status(order_id)
+        return _order_view(order)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/orders", response_model=list[OrderView])
 def list_orders(
     db: Session = Depends(get_db),
@@ -294,6 +321,7 @@ def _order_view(order: Order) -> OrderView:
         last_status_at=order.last_status_at,
         submission_attempts=order.submission_attempts,
         can_approve=can_approve(order),
+        can_cancel=can_cancel(order),
         is_terminal=is_terminal(order),
         created_at=order.created_at,
         updated_at=order.updated_at,
@@ -322,6 +350,7 @@ def _transaction_view(order: Order) -> TransactionView:
         last_status_at=order_view.last_status_at,
         submission_attempts=order_view.submission_attempts,
         can_approve=order_view.can_approve,
+        can_cancel=order_view.can_cancel,
         is_terminal=order_view.is_terminal,
         created_at=order_view.created_at or order.created_at,
     )

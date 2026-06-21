@@ -22,7 +22,7 @@ from app.schemas import (
     DecisionRequest,
     DecisionResponse,
 )
-from app.services.order_lifecycle import can_approve, is_terminal
+from app.services.order_lifecycle import can_approve, can_cancel, is_terminal
 from app.services.skill_catalog import load_skill_catalog
 from app.services.trading_engine import TradingEngine
 
@@ -351,6 +351,7 @@ class AssistantWorkspace:
                 "broker_order_id": order.broker_order_id,
                 "submission_attempts": order.submission_attempts,
                 "can_approve": can_approve(order),
+                "can_cancel": can_cancel(order),
                 "is_terminal": is_terminal(order),
                 "last_status_at": order.last_status_at.isoformat() if order.last_status_at else None,
             }
@@ -392,6 +393,7 @@ class AssistantWorkspace:
                             "broker_order_id",
                             "submission_attempts",
                             "can_approve",
+                            "can_cancel",
                             "is_terminal",
                             "last_status_at",
                         ],

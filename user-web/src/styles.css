@@ -708,9 +708,49 @@ dd {
   border-radius: 8px;
   padding: 14px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+}
+
+.order-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, auto) auto;
   gap: 14px;
   align-items: center;
+}
+
+.order-meta,
+.order-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.order-meta {
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.order-timeline {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #edf1f5;
+}
+
+.order-event {
+  display: grid;
+  grid-template-columns: 110px 140px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  color: #475569;
+  font-size: 12px;
+}
+
+.order-event strong {
+  color: #172033;
+  font-size: 12px;
 }
 
 .mini-button {

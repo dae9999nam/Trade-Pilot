@@ -1,8 +1,9 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from uuid import uuid4
 
-from app.broker.base import Broker, BrokerOrder, BrokerOrderResult
+from app.broker.base import Broker, BrokerOrder, BrokerOrderResult, BrokerOrderStatusResult
 from app.schemas import MarketSnapshot
 
 
@@ -29,3 +30,33 @@ class PaperBroker(Broker):
             message="Paper order filled immediately.",
         )
 
+    def get_order_status(self, broker_order_id: str) -> BrokerOrderStatusResult:
+        normalized = broker_order_id.upper()
+        if normalized.startswith("DEMO-SUB"):
+            return BrokerOrderStatusResult(
+                broker_order_id=broker_order_id,
+                status="SUBMITTED",
+                message="Demo paper order remains submitted.",
+                as_of=datetime.now(UTC),
+            )
+        if normalized.startswith("DEMO-FILL") or normalized.startswith("PAPER-"):
+            return BrokerOrderStatusResult(
+                broker_order_id=broker_order_id,
+                status="FILLED",
+                message="Paper order is filled.",
+                as_of=datetime.now(UTC),
+            )
+        return BrokerOrderStatusResult(
+            broker_order_id=broker_order_id,
+            status="SUBMITTED",
+            message="Paper broker has no external order book; preserving submitted state.",
+            as_of=datetime.now(UTC),
+        )
+
+    def cancel_order(self, broker_order_id: str) -> BrokerOrderStatusResult:
+        return BrokerOrderStatusResult(
+            broker_order_id=broker_order_id,
+            status="CANCELED",
+            message="Paper order canceled.",
+            as_of=datetime.now(UTC),
+        )

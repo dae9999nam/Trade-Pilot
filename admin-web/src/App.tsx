@@ -4,18 +4,21 @@ import {
   Activity,
   CheckCircle2,
   CircleDollarSign,
+  Clock3,
   LogOut,
   Play,
   RefreshCw,
   ShieldCheck,
   ShieldAlert,
-  WalletCards
+  WalletCards,
+  XCircle
 } from "lucide-react";
 
 import {
   ApiClient,
   DashboardSummary,
   DecisionResponse,
+  OrderEventView,
   OrderView,
   PublicConfig,
   TransactionView,
@@ -33,6 +36,7 @@ export default function App() {
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [orders, setOrders] = useState<OrderView[]>([]);
+  const [orderEvents, setOrderEvents] = useState<Record<number, OrderEventView[]>>({});
   const [transactions, setTransactions] = useState<TransactionView[]>([]);
   const [decision, setDecision] = useState<DecisionResponse | null>(null);
   const [symbol, setSymbol] = useState("A005930");
@@ -134,11 +138,45 @@ export default function App() {
     try {
       await api.approveOrder(orderId);
       await refresh();
+      await loadOrderEvents(orderId);
     } catch (nextError) {
       setError(String(nextError));
     } finally {
       setLoading(false);
     }
+  }
+
+  async function cancelOrder(orderId: number) {
+    setLoading(true);
+    setError(null);
+    try {
+      await api.cancelOrder(orderId);
+      await refresh();
+      await loadOrderEvents(orderId);
+    } catch (nextError) {
+      setError(String(nextError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshOrder(orderId: number) {
+    setLoading(true);
+    setError(null);
+    try {
+      await api.refreshOrder(orderId);
+      await refresh();
+      await loadOrderEvents(orderId);
+    } catch (nextError) {
+      setError(String(nextError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadOrderEvents(orderId: number) {
+    const events = await api.orderEvents(orderId);
+    setOrderEvents((current) => ({ ...current, [orderId]: events }));
   }
 
   async function logout() {
@@ -150,6 +188,7 @@ export default function App() {
     setUser(null);
     setSummary(null);
     setOrders([]);
+    setOrderEvents({});
     setTransactions([]);
     setDecision(null);
   }
@@ -269,7 +308,15 @@ export default function App() {
 
         {tab === "orders" ? (
           <section className="stack">
-            <OrdersTable orders={orders} loading={loading} onApprove={approve} />
+            <OrdersTable
+              eventsByOrder={orderEvents}
+              loading={loading}
+              onApprove={approve}
+              onCancel={cancelOrder}
+              onLoadEvents={loadOrderEvents}
+              onRefresh={refreshOrder}
+              orders={orders}
+            />
           </section>
         ) : null}
 
@@ -541,13 +588,21 @@ function PositionsTable({ positions }: { positions: DashboardSummary["positions"
 }
 
 function OrdersTable({
+  eventsByOrder,
   orders,
   loading,
-  onApprove
+  onApprove,
+  onCancel,
+  onLoadEvents,
+  onRefresh
 }: {
+  eventsByOrder: Record<number, OrderEventView[]>;
   orders: OrderView[];
   loading: boolean;
   onApprove: (orderId: number) => void;
+  onCancel: (orderId: number) => void;
+  onLoadEvents: (orderId: number) => void;
+  onRefresh: (orderId: number) => void;
 }) {
   return (
     <section className="panel">
@@ -573,19 +628,50 @@ function OrdersTable({
             <span>{order.quantity}</span>
             <span><Badge tone={orderTone(order.status)}>{order.status}</Badge></span>
             <span>{order.submission_attempts}</span>
-            <span>
+            <span className="row-actions">
               {order.can_approve ? (
                 <button className="mini-button" onClick={() => onApprove(order.id)} disabled={loading}>
                   <CheckCircle2 size={15} />
                   {order.status === "SUBMISSION_FAILED" ? "Retry" : "Approve"}
                 </button>
-              ) : (
-                order.broker_order_id ?? order.message ?? formatDate(order.last_status_at)
-              )}
+              ) : null}
+              {!order.is_terminal ? (
+                <button className="mini-button" onClick={() => onRefresh(order.id)} disabled={loading}>
+                  <RefreshCw size={15} />
+                  Refresh
+                </button>
+              ) : null}
+              {order.can_cancel ? (
+                <button className="mini-button" onClick={() => onCancel(order.id)} disabled={loading}>
+                  <XCircle size={15} />
+                  Cancel
+                </button>
+              ) : null}
+              <button className="mini-button" onClick={() => onLoadEvents(order.id)} disabled={loading}>
+                <Clock3 size={15} />
+                Events
+              </button>
             </span>
           </div>
         ))}
       </div>
+      {Object.entries(eventsByOrder).length > 0 ? (
+        <div className="order-events-panel">
+          {Object.entries(eventsByOrder).map(([orderId, events]) => (
+            <div className="order-events-group" key={orderId}>
+              <h4>Order #{orderId} timeline</h4>
+              {events.length === 0 ? <p>No events</p> : null}
+              {events.map((event) => (
+                <div className="order-event-row" key={event.id}>
+                  <span>{formatDate(event.created_at)}</span>
+                  <strong>{event.to_status}</strong>
+                  <small>{event.event_type}{event.message ? ` / ${event.message}` : ""}</small>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

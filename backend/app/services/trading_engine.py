@@ -25,7 +25,10 @@ from app.services.order_lifecycle import (
     ORDER_SUBMITTED,
     ORDER_SUBMITTING,
     can_approve,
+    can_cancel,
+    can_transition,
     initialize_order_status,
+    is_terminal,
     transition_order,
 )
 from app.services.risk import RiskManager
@@ -109,11 +112,7 @@ class TradingEngine:
         return order
 
     def approve_order(self, order_id: int) -> Order:
-        order = self.db.scalar(
-            select(Order).where(Order.id == order_id, Order.user_id == self.user_id)
-        )
-        if order is None:
-            raise ValueError("Order not found.")
+        order = self._get_user_order(order_id)
         if not can_approve(order):
             return order
 
@@ -175,6 +174,127 @@ class TradingEngine:
         self.db.refresh(order)
         return order
 
+    def cancel_order(self, order_id: int) -> Order:
+        order = self._get_user_order(order_id)
+        if not can_cancel(order):
+            return order
+
+        if order.status in {ORDER_PENDING_APPROVAL, ORDER_APPROVED, ORDER_SUBMISSION_FAILED}:
+            transition_order(
+                self.db,
+                order,
+                ORDER_CANCELED,
+                event_type="order_canceled",
+                message="Order canceled before reliable broker acceptance.",
+            )
+            self.db.commit()
+            self.db.refresh(order)
+            return order
+
+        if not order.broker_order_id:
+            transition_order(
+                self.db,
+                order,
+                ORDER_CANCELED,
+                event_type="order_canceled",
+                message="Order canceled locally because no broker order ID is available.",
+            )
+            self.db.commit()
+            self.db.refresh(order)
+            return order
+
+        try:
+            result = self.broker.cancel_order(order.broker_order_id)
+        except Exception as exc:
+            transition_order(
+                self.db,
+                order,
+                order.status,
+                event_type="broker_cancel_failed",
+                message=str(exc),
+                event_payload={"exception_type": type(exc).__name__},
+            )
+            self.db.commit()
+            self.db.refresh(order)
+            return order
+
+        next_status = self._normalize_broker_status(result.status)
+        message = result.message
+        if not can_transition(order.status, next_status):
+            message = f"{result.message} Broker status {result.status} cannot transition from {order.status}."
+            next_status = order.status
+        transition_order(
+            self.db,
+            order,
+            next_status,
+            event_type="broker_cancel_result",
+            message=message,
+            broker_order_id=result.broker_order_id,
+            event_payload=self._broker_status_payload(result.status, result.raw_payload),
+        )
+        self.db.commit()
+        self.db.refresh(order)
+        return order
+
+    def refresh_order_status(self, order_id: int) -> Order:
+        order = self._get_user_order(order_id)
+        if is_terminal(order):
+            return order
+
+        if not order.broker_order_id:
+            transition_order(
+                self.db,
+                order,
+                order.status,
+                event_type="order_status_refreshed",
+                message="No broker status is available for this local order state.",
+            )
+            self.db.commit()
+            self.db.refresh(order)
+            return order
+
+        try:
+            result = self.broker.get_order_status(order.broker_order_id)
+        except Exception as exc:
+            transition_order(
+                self.db,
+                order,
+                order.status,
+                event_type="broker_status_refresh_failed",
+                message=str(exc),
+                event_payload={"exception_type": type(exc).__name__},
+            )
+            self.db.commit()
+            self.db.refresh(order)
+            return order
+
+        previous_status = order.status
+        next_status = self._normalize_broker_status(result.status)
+        message = result.message
+        if not can_transition(order.status, next_status):
+            message = f"{result.message} Broker status {result.status} cannot transition from {order.status}."
+            next_status = order.status
+        transition_order(
+            self.db,
+            order,
+            next_status,
+            event_type="broker_status_refreshed",
+            message=message,
+            broker_order_id=result.broker_order_id,
+            event_payload=self._broker_status_payload(result.status, result.raw_payload),
+        )
+
+        if (
+            previous_status != ORDER_FILLED
+            and next_status == ORDER_FILLED
+            and self.settings.broker_mode == "paper"
+        ):
+            self._upsert_paper_position(order)
+
+        self.db.commit()
+        self.db.refresh(order)
+        return order
+
     def _create_order_from_decision(self, decision_id: int, decision: TradeDecisionPayload) -> Order:
         order = Order(
             user_id=self.user_id,
@@ -199,6 +319,14 @@ class TradingEngine:
         self.approve_order(order.id)
         return order
 
+    def _get_user_order(self, order_id: int) -> Order:
+        order = self.db.scalar(
+            select(Order).where(Order.id == order_id, Order.user_id == self.user_id)
+        )
+        if order is None:
+            raise ValueError("Order not found.")
+        return order
+
     def _normalize_broker_status(self, broker_status: str) -> str:
         normalized = broker_status.upper()
         if normalized in {ORDER_SUBMITTED, "ACCEPTED"}:
@@ -212,6 +340,16 @@ class TradingEngine:
         if normalized in {ORDER_CANCELED, "CANCELLED"}:
             return ORDER_CANCELED
         return ORDER_SUBMISSION_FAILED
+
+    def _broker_status_payload(
+        self,
+        broker_status: str,
+        raw_payload: dict | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {"broker_status": broker_status}
+        if raw_payload:
+            payload["raw_payload"] = raw_payload
+        return payload
 
     def _upsert_paper_position(self, order: Order) -> None:
         price = Decimal(order.limit_price or Decimal("0"))

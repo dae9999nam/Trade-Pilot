@@ -72,3 +72,14 @@ class OrderResponse(BaseModel):
     message: str
     creon_status_code: int | None = None
     submitted_at: datetime | None = None
+
+
+class OrderStatusResponse(BaseModel):
+    broker_order_id: str | None
+    status: str
+    message: str
+    filled_quantity: int | None = None
+    remaining_quantity: int | None = None
+    creon_status_code: int | None = None
+    as_of: datetime | None = None
+    raw_payload: dict | None = None

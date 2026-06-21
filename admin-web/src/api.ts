@@ -91,6 +91,7 @@ export type OrderView = {
   last_status_at: string | null;
   submission_attempts: number;
   can_approve: boolean;
+  can_cancel: boolean;
   is_terminal: boolean;
   created_at: string | null;
   updated_at: string | null;
@@ -186,6 +187,14 @@ export class ApiClient {
 
   async approveOrder(orderId: number): Promise<OrderView> {
     return this.post(`/api/orders/${orderId}/approve`, {});
+  }
+
+  async cancelOrder(orderId: number): Promise<OrderView> {
+    return this.post(`/api/orders/${orderId}/cancel`, {});
+  }
+
+  async refreshOrder(orderId: number): Promise<OrderView> {
+    return this.post(`/api/orders/${orderId}/refresh`, {});
   }
 
   async orderEvents(orderId: number): Promise<OrderEventView[]> {

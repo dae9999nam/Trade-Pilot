@@ -178,6 +178,7 @@ class OrderView(BaseModel):
     last_status_at: datetime | None = None
     submission_attempts: int = 0
     can_approve: bool = False
+    can_cancel: bool = False
     is_terminal: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -239,6 +240,7 @@ class TransactionView(BaseModel):
     last_status_at: datetime | None = None
     submission_attempts: int = 0
     can_approve: bool = False
+    can_cancel: bool = False
     is_terminal: bool = False
     created_at: datetime
 
