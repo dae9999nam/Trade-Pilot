@@ -32,6 +32,13 @@ from app.services.order_lifecycle import (
     transition_order,
 )
 from app.services.risk import RiskManager
+from app.services.trading_safety import (
+    effective_live_trading_enabled,
+    effective_max_order_krw,
+    effective_max_position_krw,
+    effective_min_decision_confidence,
+    get_or_create_user_trading_settings,
+)
 
 
 class TradingEngine:
@@ -45,7 +52,20 @@ class TradingEngine:
 
     def run_decision(self, request: DecisionRequest, snapshot: MarketSnapshot) -> DecisionResponse:
         decision = self.orchestrator.run(request, snapshot)
-        risk_result = self.risk.evaluate(decision, snapshot, request.max_position_krw)
+        safety = get_or_create_user_trading_settings(self.db, self.user_id, self.settings)
+        risk_result = self.risk.evaluate(
+            decision,
+            snapshot,
+            max_position_krw=effective_max_position_krw(
+                safety,
+                self.settings,
+                request.max_position_krw,
+            ),
+            max_order_krw=effective_max_order_krw(safety, self.settings),
+            min_decision_confidence=effective_min_decision_confidence(safety, self.settings),
+            require_manual_approval=safety.require_manual_approval,
+            live_trading_opt_in=safety.live_trading_opt_in,
+        )
 
         agent_run = AgentRun(
             user_id=self.user_id,
@@ -114,6 +134,19 @@ class TradingEngine:
     def approve_order(self, order_id: int) -> Order:
         order = self._get_user_order(order_id)
         if not can_approve(order):
+            return order
+
+        safety_failure = self._order_safety_failure(order)
+        if safety_failure:
+            transition_order(
+                self.db,
+                order,
+                ORDER_REJECTED,
+                event_type="order_rejected_by_safety",
+                message=safety_failure,
+            )
+            self.db.commit()
+            self.db.refresh(order)
             return order
 
         transition_order(
@@ -326,6 +359,21 @@ class TradingEngine:
         if order is None:
             raise ValueError("Order not found.")
         return order
+
+    def _order_safety_failure(self, order: Order) -> str | None:
+        safety = get_or_create_user_trading_settings(self.db, self.user_id, self.settings)
+        price = order.limit_price
+        if price is None:
+            price = self.broker.get_quote(order.symbol).price
+        notional = Decimal(order.quantity) * price
+        if notional > Decimal(effective_max_order_krw(safety, self.settings)):
+            return "Order notional exceeds max order limit."
+        if self.settings.broker_mode in {"creon", "creon_gateway"}:
+            if not self.settings.live_trading_enabled:
+                return "System live trading gate is disabled."
+            if not effective_live_trading_enabled(safety, self.settings):
+                return "User live trading opt-in is disabled."
+        return None
 
     def _normalize_broker_status(self, broker_status: str) -> str:
         normalized = broker_status.upper()

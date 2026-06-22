@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -41,6 +41,22 @@ class UserSession(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="sessions")
+
+
+class UserTradingSettings(Base):
+    __tablename__ = "user_trading_settings"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_user_trading_settings_user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    max_order_krw: Mapped[int] = mapped_column(Integer)
+    max_position_krw: Mapped[int] = mapped_column(Integer)
+    min_decision_confidence: Mapped[float] = mapped_column(Float)
+    require_manual_approval: Mapped[bool] = mapped_column(Boolean, default=True)
+    live_trading_opt_in: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class AgentRun(Base):

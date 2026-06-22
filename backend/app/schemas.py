@@ -63,6 +63,34 @@ class UserProfileUpdate(BaseModel):
         return normalized
 
 
+class UserTradingSafetySettings(BaseModel):
+    max_order_krw: int = Field(ge=0)
+    max_position_krw: int = Field(ge=0)
+    min_decision_confidence: float = Field(ge=0, le=1)
+    require_manual_approval: bool
+    live_trading_opt_in: bool
+
+
+class SystemTradingSafetySettings(BaseModel):
+    broker_mode: str
+    auto_execute: bool
+    system_live_trading_enabled: bool
+    effective_live_trading_enabled: bool
+    max_order_krw_cap: int
+    max_position_krw_cap: int
+    min_decision_confidence_floor: float
+    controlled_by_system: list[str]
+
+
+class TradingSafetySettingsResponse(BaseModel):
+    user: UserTradingSafetySettings
+    system: SystemTradingSafetySettings
+
+
+class TradingSafetySettingsUpdate(UserTradingSafetySettings):
+    pass
+
+
 class LoginResponse(BaseModel):
     csrf_token: str
     token_type: Literal["cookie"] = "cookie"

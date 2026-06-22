@@ -34,6 +34,8 @@ from app.schemas import (
     PositionView,
     RegisterRequest,
     TransactionView,
+    TradingSafetySettingsResponse,
+    TradingSafetySettingsUpdate,
     UserProfile,
     UserProfileUpdate,
 )
@@ -47,6 +49,11 @@ from app.services.order_lifecycle import (
     is_terminal,
 )
 from app.services.trading_engine import TradingEngine
+from app.services.trading_safety import (
+    get_or_create_user_trading_settings,
+    safety_response,
+    update_user_trading_settings,
+)
 
 router = APIRouter()
 
@@ -139,6 +146,30 @@ def update_me(
         db.commit()
         db.refresh(user_row)
     return UserProfile(id=user_row.id, username=user_row.email, email=user_row.email, role=user_row.role)  # type: ignore[arg-type]
+
+
+@router.get("/settings/trading-safety", response_model=TradingSafetySettingsResponse)
+def get_trading_safety_settings(
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> TradingSafetySettingsResponse:
+    row = get_or_create_user_trading_settings(db, user.id, settings)
+    db.commit()
+    db.refresh(row)
+    return safety_response(row, settings)
+
+
+@router.patch("/settings/trading-safety", response_model=TradingSafetySettingsResponse)
+def update_trading_safety_settings(
+    payload: TradingSafetySettingsUpdate,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> TradingSafetySettingsResponse:
+    row = get_or_create_user_trading_settings(db, user.id, settings)
+    update_user_trading_settings(row, payload, settings)
+    db.commit()
+    db.refresh(row)
+    return safety_response(row, settings)
 
 
 @router.post("/decisions/run", response_model=DecisionResponse)

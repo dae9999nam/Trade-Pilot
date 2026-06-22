@@ -32,6 +32,30 @@ export type ProfileUpdateRequest = {
   new_password?: string;
 };
 
+export type TradingSafetyUserSettings = {
+  max_order_krw: number;
+  max_position_krw: number;
+  min_decision_confidence: number;
+  require_manual_approval: boolean;
+  live_trading_opt_in: boolean;
+};
+
+export type TradingSafetySystemSettings = {
+  broker_mode: string;
+  auto_execute: boolean;
+  system_live_trading_enabled: boolean;
+  effective_live_trading_enabled: boolean;
+  max_order_krw_cap: number;
+  max_position_krw_cap: number;
+  min_decision_confidence_floor: number;
+  controlled_by_system: string[];
+};
+
+export type TradingSafetySettings = {
+  user: TradingSafetyUserSettings;
+  system: TradingSafetySystemSettings;
+};
+
 export type AgentVerdict = {
   role: string;
   verdict: "bullish" | "bearish" | "neutral" | "block";
@@ -193,6 +217,14 @@ export class ApiClient {
 
   async updateProfile(payload: ProfileUpdateRequest): Promise<UserProfile> {
     return this.patch("/api/auth/me", payload);
+  }
+
+  async tradingSafety(): Promise<TradingSafetySettings> {
+    return this.get("/api/settings/trading-safety");
+  }
+
+  async updateTradingSafety(payload: TradingSafetyUserSettings): Promise<TradingSafetySettings> {
+    return this.patch("/api/settings/trading-safety", payload);
   }
 
   async config(): Promise<PublicConfig> {

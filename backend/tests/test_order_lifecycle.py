@@ -7,12 +7,13 @@ from app.broker.base import Broker, BrokerOrder, BrokerOrderResult, BrokerOrderS
 from app.broker.paper import PaperBroker
 from app.core.config import Settings
 from app.db.base import Base
-from app.models import OrderEvent, Position
+from app.models import OrderEvent, Position, UserTradingSettings
 from app.schemas import MarketSnapshot, OrderCreate
 from app.services.order_lifecycle import (
     ORDER_FILLED,
     ORDER_CANCELED,
     ORDER_PENDING_APPROVAL,
+    ORDER_REJECTED,
     ORDER_SUBMITTED,
     ORDER_SUBMISSION_FAILED,
     can_approve,
@@ -77,10 +78,26 @@ def test_manual_order_lifecycle_fills_paper_order() -> None:
 
 def test_broker_submission_failure_remains_approvable_for_retry() -> None:
     db = _session()
+    db.add(
+        UserTradingSettings(
+            user_id=1,
+            max_order_krw=500000,
+            max_position_krw=1000000,
+            min_decision_confidence=0.62,
+            require_manual_approval=True,
+            live_trading_opt_in=True,
+        )
+    )
+    db.flush()
     engine = TradingEngine(
         db,
         FailingBroker(),
-        Settings(openai_api_key=None, broker_mode="creon_gateway"),
+        Settings(
+            openai_api_key=None,
+            broker_mode="creon_gateway",
+            allow_live_trading=True,
+            i_understand_loss_risk=True,
+        ),
         user_id=1,
     )
     order = engine.create_manual_order(
@@ -106,6 +123,40 @@ def test_broker_submission_failure_remains_approvable_for_retry() -> None:
     assert not is_terminal(failed_order)
     assert failure_events
     assert failure_events[0].event_payload == {"exception_type": "RuntimeError"}
+
+
+def test_live_gateway_order_requires_user_opt_in() -> None:
+    db = _session()
+    engine = TradingEngine(
+        db,
+        FailingBroker(),
+        Settings(
+            openai_api_key=None,
+            broker_mode="creon_gateway",
+            allow_live_trading=True,
+            i_understand_loss_risk=True,
+        ),
+        user_id=1,
+    )
+    order = engine.create_manual_order(
+        OrderCreate(
+            symbol="A005930",
+            side="BUY",
+            quantity=1,
+            order_type="LIMIT",
+            limit_price=Decimal("70000"),
+        )
+    )
+
+    rejected_order = engine.approve_order(order.id)
+    safety_events = db.scalars(
+        select(OrderEvent).where(OrderEvent.order_id == order.id, OrderEvent.event_type == "order_rejected_by_safety")
+    ).all()
+
+    assert rejected_order.status == ORDER_REJECTED
+    assert rejected_order.rejected_at is not None
+    assert safety_events
+    assert safety_events[0].message == "User live trading opt-in is disabled."
 
 
 def test_pending_order_can_be_canceled_locally() -> None:

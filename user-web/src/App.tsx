@@ -33,6 +33,8 @@ import type {
   OrderView,
   PositionView,
   PublicConfig,
+  TradingSafetySettings,
+  TradingSafetyUserSettings,
   UserProfile
 } from "./api";
 
@@ -48,6 +50,7 @@ export default function App() {
   const [positions, setPositions] = useState<PositionView[]>([]);
   const [orders, setOrders] = useState<OrderView[]>([]);
   const [orderEvents, setOrderEvents] = useState<Record<number, OrderEventView[]>>({});
+  const [tradingSafety, setTradingSafety] = useState<TradingSafetySettings | null>(null);
   const [assistantResponse, setAssistantResponse] = useState<AssistantQueryResponse | null>(null);
   const [query, setQuery] = useState("A005930을 분석하고 매수, 매도, 보유 중 어떤 선택이 적절한지 알려줘.");
   const [symbol, setSymbol] = useState("A005930");
@@ -64,15 +67,18 @@ export default function App() {
       setPositions([]);
       setOrders([]);
       setOrderEvents({});
+      setTradingSafety(null);
       return;
     }
 
-    const [nextPositions, nextOrders] = await Promise.all([
+    const [nextPositions, nextOrders, nextTradingSafety] = await Promise.all([
       api.positions(),
-      api.orders()
+      api.orders(),
+      api.tradingSafety()
     ]);
     setPositions(nextPositions);
     setOrders(nextOrders);
+    setTradingSafety(nextTradingSafety);
   }
 
   useEffect(() => {
@@ -127,6 +133,20 @@ export default function App() {
     }
   }
 
+  async function updateTradingSafety(payload: TradingSafetyUserSettings) {
+    setLoading(true);
+    setError(null);
+    try {
+      const nextTradingSafety = await api.updateTradingSafety(payload);
+      setTradingSafety(nextTradingSafety);
+    } catch (nextError) {
+      setError(String(nextError));
+      throw nextError;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function logout() {
     setLoading(true);
     setError(null);
@@ -140,6 +160,7 @@ export default function App() {
       setPositions([]);
       setOrders([]);
       setOrderEvents({});
+      setTradingSafety(null);
       setLoading(false);
     }
   }
@@ -344,7 +365,9 @@ export default function App() {
           <section className="stack">
             <SettingsPanel
               loading={loading}
-              onSubmit={updateProfile}
+              onProfileSubmit={updateProfile}
+              onTradingSafetySubmit={updateTradingSafety}
+              tradingSafety={tradingSafety}
               user={user}
             />
           </section>
@@ -785,6 +808,31 @@ function PortfolioOverview({
 
 function SettingsPanel({
   loading,
+  onProfileSubmit,
+  onTradingSafetySubmit,
+  tradingSafety,
+  user
+}: {
+  loading: boolean;
+  onProfileSubmit: (payload: { email: string; currentPassword: string; newPassword?: string }) => Promise<void>;
+  onTradingSafetySubmit: (payload: TradingSafetyUserSettings) => Promise<void>;
+  tradingSafety: TradingSafetySettings | null;
+  user: UserProfile;
+}) {
+  return (
+    <>
+      <AccountSettingsPanel loading={loading} onSubmit={onProfileSubmit} user={user} />
+      <TradingSafetyPanel
+        loading={loading}
+        onSubmit={onTradingSafetySubmit}
+        tradingSafety={tradingSafety}
+      />
+    </>
+  );
+}
+
+function AccountSettingsPanel({
+  loading,
   onSubmit,
   user
 }: {
@@ -874,6 +922,199 @@ function SettingsPanel({
         {saved ? <div className="success-banner">Settings updated.</div> : null}
         <button className="primary" type="submit" disabled={loading}>
           Save changes
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function TradingSafetyPanel({
+  loading,
+  onSubmit,
+  tradingSafety
+}: {
+  loading: boolean;
+  onSubmit: (payload: TradingSafetyUserSettings) => Promise<void>;
+  tradingSafety: TradingSafetySettings | null;
+}) {
+  const userSettings = tradingSafety?.user;
+  const systemSettings = tradingSafety?.system;
+  const [maxOrderKrw, setMaxOrderKrw] = useState(String(userSettings?.max_order_krw ?? 0));
+  const [maxPositionKrw, setMaxPositionKrw] = useState(String(userSettings?.max_position_krw ?? 0));
+  const [minConfidence, setMinConfidence] = useState(String(userSettings?.min_decision_confidence ?? 0));
+  const [requireManualApproval, setRequireManualApproval] = useState(userSettings?.require_manual_approval ?? true);
+  const [liveTradingOptIn, setLiveTradingOptIn] = useState(userSettings?.live_trading_opt_in ?? false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!userSettings) return;
+    setMaxOrderKrw(String(userSettings.max_order_krw));
+    setMaxPositionKrw(String(userSettings.max_position_krw));
+    setMinConfidence(String(userSettings.min_decision_confidence));
+    setRequireManualApproval(userSettings.require_manual_approval);
+    setLiveTradingOptIn(userSettings.live_trading_opt_in);
+  }, [userSettings]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!systemSettings) return;
+    setLocalError(null);
+    setSaved(false);
+
+    const nextMaxOrderKrw = Number(maxOrderKrw);
+    const nextMaxPositionKrw = Number(maxPositionKrw);
+    const nextMinConfidence = Number(minConfidence);
+
+    if (!Number.isFinite(nextMaxOrderKrw) || nextMaxOrderKrw < 0) {
+      setLocalError("Max order KRW must be zero or greater.");
+      return;
+    }
+    if (!Number.isFinite(nextMaxPositionKrw) || nextMaxPositionKrw < 0) {
+      setLocalError("Max position KRW must be zero or greater.");
+      return;
+    }
+    if (nextMaxOrderKrw > systemSettings.max_order_krw_cap) {
+      setLocalError("Max order KRW cannot exceed the system cap.");
+      return;
+    }
+    if (nextMaxPositionKrw > systemSettings.max_position_krw_cap) {
+      setLocalError("Max position KRW cannot exceed the system cap.");
+      return;
+    }
+    if (
+      !Number.isFinite(nextMinConfidence)
+      || nextMinConfidence < systemSettings.min_decision_confidence_floor
+      || nextMinConfidence > 1
+    ) {
+      setLocalError("Confidence floor must stay within the system range.");
+      return;
+    }
+
+    await onSubmit({
+      max_order_krw: Math.round(nextMaxOrderKrw),
+      max_position_krw: Math.round(nextMaxPositionKrw),
+      min_decision_confidence: nextMinConfidence,
+      require_manual_approval: requireManualApproval,
+      live_trading_opt_in: systemSettings.system_live_trading_enabled ? liveTradingOptIn : false
+    });
+    setSaved(true);
+  }
+
+  if (!tradingSafety) {
+    return (
+      <section className="settings-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Trading safety</p>
+            <h3>Live trading controls</h3>
+          </div>
+          <Badge tone="amber">Loading</Badge>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="settings-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Trading safety</p>
+          <h3>Live trading controls</h3>
+        </div>
+        <Badge tone={systemSettings?.effective_live_trading_enabled ? "green" : "amber"}>
+          {systemSettings?.effective_live_trading_enabled ? "Live armed" : "Guarded"}
+        </Badge>
+      </div>
+      <form className="settings-form safety-form" onSubmit={submit}>
+        <label>
+          Max order KRW
+          <input
+            value={maxOrderKrw}
+            onChange={(event) => setMaxOrderKrw(event.target.value)}
+            inputMode="numeric"
+            max={systemSettings?.max_order_krw_cap}
+            min="0"
+            type="number"
+          />
+        </label>
+        <label>
+          Max position KRW
+          <input
+            value={maxPositionKrw}
+            onChange={(event) => setMaxPositionKrw(event.target.value)}
+            inputMode="numeric"
+            max={systemSettings?.max_position_krw_cap}
+            min="0"
+            type="number"
+          />
+        </label>
+        <label>
+          Min confidence
+          <input
+            value={minConfidence}
+            onChange={(event) => setMinConfidence(event.target.value)}
+            max="1"
+            min={systemSettings?.min_decision_confidence_floor}
+            step="0.01"
+            type="number"
+          />
+        </label>
+        <div className="setting-toggle">
+          <input
+            checked={requireManualApproval}
+            id="require-manual-approval"
+            onChange={(event) => setRequireManualApproval(event.target.checked)}
+            type="checkbox"
+          />
+          <label htmlFor="require-manual-approval">
+            <strong>Manual approval required</strong>
+            <span>{requireManualApproval ? "Enabled" : "Disabled"}</span>
+          </label>
+        </div>
+        <div className="setting-toggle">
+          <input
+            checked={liveTradingOptIn}
+            disabled={!systemSettings?.system_live_trading_enabled}
+            id="live-trading-opt-in"
+            onChange={(event) => setLiveTradingOptIn(event.target.checked)}
+            type="checkbox"
+          />
+          <label htmlFor="live-trading-opt-in">
+            <strong>Live trading opt-in</strong>
+            <span>{systemSettings?.system_live_trading_enabled ? "System gate open" : "System gate locked"}</span>
+          </label>
+        </div>
+        <div className="system-locks">
+          <div>
+            <span>Broker mode</span>
+            <strong>{systemSettings?.broker_mode}</strong>
+          </div>
+          <div>
+            <span>Auto execute</span>
+            <strong>{String(systemSettings?.auto_execute)}</strong>
+          </div>
+          <div>
+            <span>System live gate</span>
+            <strong>{String(systemSettings?.system_live_trading_enabled)}</strong>
+          </div>
+          <div>
+            <span>System order cap</span>
+            <strong>{formatKrw(systemSettings?.max_order_krw_cap ?? 0)}</strong>
+          </div>
+          <div>
+            <span>System position cap</span>
+            <strong>{formatKrw(systemSettings?.max_position_krw_cap ?? 0)}</strong>
+          </div>
+          <div>
+            <span>System confidence floor</span>
+            <strong>{formatPercent(systemSettings?.min_decision_confidence_floor ?? 0)}</strong>
+          </div>
+        </div>
+        {localError ? <div className="error-banner">{localError}</div> : null}
+        {saved ? <div className="success-banner">Trading safety updated.</div> : null}
+        <button className="primary" type="submit" disabled={loading}>
+          Save trading safety
         </button>
       </form>
     </section>
@@ -994,7 +1235,7 @@ function NavButton({
   return (
     <button className={active ? "nav-button active" : "nav-button"} type="button" onClick={onClick}>
       {icon}
-      {label}
+      <span>{label}</span>
     </button>
   );
 }
