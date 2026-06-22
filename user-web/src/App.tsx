@@ -251,6 +251,7 @@ export default function App() {
   );
   const openOrders = orders.filter((order) => !order.is_terminal);
   const displayName = user ? user.email.split("@")[0] || user.email : "";
+  const liveTradingArmed = tradingSafety?.system.effective_live_trading_enabled ?? config?.live_trading_enabled;
 
   if (!bootstrapped) {
     return <div className="loading-screen">Loading Trade-pilot</div>;
@@ -284,8 +285,8 @@ export default function App() {
           <NavButton icon={<Bot size={17} />} label="Workspace" active={view === "workspace"} onClick={() => setView("workspace")} />
         </nav>
         <div className="sidebar-foot">
-          <Badge tone={config?.live_trading_enabled ? "green" : "amber"}>
-            {config?.live_trading_enabled ? "Live enabled" : "Guarded"}
+          <Badge tone={liveTradingArmed ? "green" : "amber"}>
+            {liveTradingArmed ? "Live armed" : "Guarded"}
           </Badge>
           <span>{config?.broker_mode ?? "paper"}</span>
           <NavButton icon={<SettingsIcon size={17} />} label="Settings" active={view === "settings"} onClick={() => setView("settings")} />
