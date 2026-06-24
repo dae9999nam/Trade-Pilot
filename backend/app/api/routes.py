@@ -28,6 +28,8 @@ from app.schemas import (
     DecisionResponse,
     LoginRequest,
     LoginResponse,
+    OrderApprovalPreview,
+    OrderApprovalRequest,
     OrderCreate,
     OrderEventView,
     OrderView,
@@ -48,7 +50,11 @@ from app.services.order_lifecycle import (
     can_cancel,
     is_terminal,
 )
-from app.services.trading_engine import TradingEngine
+from app.services.trading_engine import (
+    OrderApprovalConfirmationError,
+    OrderNotFoundError,
+    TradingEngine,
+)
 from app.services.trading_safety import (
     get_or_create_user_trading_settings,
     safety_response,
@@ -286,17 +292,35 @@ def create_order(
     return _order_view(order)
 
 
+@router.post("/orders/{order_id}/approval-preview", response_model=OrderApprovalPreview)
+def preview_order_approval(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> OrderApprovalPreview:
+    try:
+        return TradingEngine(db, get_broker(), settings, user.id).preview_order_approval(order_id)
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/orders/{order_id}/approve", response_model=OrderView)
 def approve_order(
     order_id: int,
+    payload: OrderApprovalRequest,
     db: Session = Depends(get_db),
     user: UserProfile = Depends(require_auth),
 ) -> OrderView:
     try:
-        order = TradingEngine(db, get_broker(), settings, user.id).approve_order(order_id)
+        order = TradingEngine(db, get_broker(), settings, user.id).approve_order(
+            order_id,
+            payload.confirmation_text,
+        )
         return _order_view(order)
-    except ValueError as exc:
+    except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OrderApprovalConfirmationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/orders/{order_id}/cancel", response_model=OrderView)

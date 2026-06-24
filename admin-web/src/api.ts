@@ -186,7 +186,7 @@ export class ApiClient {
   }
 
   async approveOrder(orderId: number): Promise<OrderView> {
-    return this.post(`/api/orders/${orderId}/approve`, {});
+    return this.post(`/api/orders/${orderId}/approve`, { confirmation_text: `APPROVE ${orderId}` });
   }
 
   async cancelOrder(orderId: number): Promise<OrderView> {

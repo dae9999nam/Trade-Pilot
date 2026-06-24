@@ -179,6 +179,24 @@ export type OrderView = {
   updated_at: string | null;
 };
 
+export type OrderApprovalPreview = {
+  order_id: number;
+  symbol: string;
+  side: string;
+  quantity: number;
+  order_type: string;
+  limit_price: MoneyValue | null;
+  estimated_price: MoneyValue;
+  estimated_notional_krw: MoneyValue;
+  broker_mode: string;
+  system_live_trading_enabled: boolean;
+  effective_live_trading_enabled: boolean;
+  safety_status: "PASS" | "BLOCKED";
+  safety_reasons: string[];
+  confirmation_text: string;
+  can_submit: boolean;
+};
+
 export type OrderEventView = {
   id: number;
   order_id: number;
@@ -247,8 +265,12 @@ export class ApiClient {
     return this.get("/api/orders");
   }
 
-  async approveOrder(orderId: number): Promise<OrderView> {
-    return this.post(`/api/orders/${orderId}/approve`, {});
+  async orderApprovalPreview(orderId: number): Promise<OrderApprovalPreview> {
+    return this.post(`/api/orders/${orderId}/approval-preview`, {});
+  }
+
+  async approveOrder(orderId: number, confirmationText: string): Promise<OrderView> {
+    return this.post(`/api/orders/${orderId}/approve`, { confirmation_text: confirmationText });
   }
 
   async cancelOrder(orderId: number): Promise<OrderView> {

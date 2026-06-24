@@ -203,6 +203,28 @@ class OrderCreate(BaseModel):
     limit_price: Decimal | None = Field(default=None, ge=0)
 
 
+class OrderApprovalRequest(BaseModel):
+    confirmation_text: str = Field(min_length=1, max_length=64)
+
+
+class OrderApprovalPreview(BaseModel):
+    order_id: int
+    symbol: str
+    side: str
+    quantity: int
+    order_type: str
+    limit_price: Decimal | None
+    estimated_price: Decimal
+    estimated_notional_krw: Decimal
+    broker_mode: str
+    system_live_trading_enabled: bool
+    effective_live_trading_enabled: bool
+    safety_status: Literal["PASS", "BLOCKED"]
+    safety_reasons: list[str] = Field(default_factory=list)
+    confirmation_text: str
+    can_submit: bool
+
+
 class OrderView(BaseModel):
     id: int
     mode: str

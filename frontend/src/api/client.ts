@@ -79,7 +79,7 @@ export class ApiClient {
   }
 
   async approveOrder(orderId: number): Promise<OrderView> {
-    return this.post(`/api/orders/${orderId}/approve`, {});
+    return this.post(`/api/orders/${orderId}/approve`, { confirmation_text: `APPROVE ${orderId}` });
   }
 
   async positions(): Promise<PositionView[]> {
@@ -110,4 +110,3 @@ export class ApiClient {
     return response.json() as Promise<T>;
   }
 }
-

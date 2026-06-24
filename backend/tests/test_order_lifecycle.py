@@ -20,7 +20,7 @@ from app.services.order_lifecycle import (
     can_cancel,
     is_terminal,
 )
-from app.services.trading_engine import TradingEngine
+from app.services.trading_engine import OrderApprovalConfirmationError, TradingEngine
 
 
 def _session() -> Session:
@@ -52,7 +52,8 @@ def test_manual_order_lifecycle_fills_paper_order() -> None:
     assert can_approve(order)
     assert order.submission_attempts == 0
 
-    approved_order = engine.approve_order(order.id)
+    preview = engine.preview_order_approval(order.id)
+    approved_order = engine.approve_order(order.id, preview.confirmation_text)
     position = db.scalar(select(Position).where(Position.symbol == "A005930"))
     events = db.scalars(
         select(OrderEvent).where(OrderEvent.order_id == order.id).order_by(OrderEvent.id.asc())
@@ -70,10 +71,13 @@ def test_manual_order_lifecycle_fills_paper_order() -> None:
     assert position.quantity == 3
     assert [event.event_type for event in events] == [
         "manual_order_staged",
+        "order_approval_previewed",
         "order_approved",
         "broker_submit_started",
         "broker_submit_result",
     ]
+    assert events[1].event_payload is not None
+    assert events[1].event_payload["estimated_notional_krw"] == "210000.00"
 
 
 def test_broker_submission_failure_remains_approvable_for_retry() -> None:
@@ -110,7 +114,8 @@ def test_broker_submission_failure_remains_approvable_for_retry() -> None:
         )
     )
 
-    failed_order = engine.approve_order(order.id)
+    preview = engine.preview_order_approval(order.id)
+    failed_order = engine.approve_order(order.id, preview.confirmation_text)
     failure_events = db.scalars(
         select(OrderEvent)
         .where(OrderEvent.order_id == order.id, OrderEvent.event_type == "broker_submit_failed")
@@ -148,7 +153,8 @@ def test_live_gateway_order_requires_user_opt_in() -> None:
         )
     )
 
-    rejected_order = engine.approve_order(order.id)
+    preview = engine.preview_order_approval(order.id)
+    rejected_order = engine.approve_order(order.id, preview.confirmation_text)
     safety_events = db.scalars(
         select(OrderEvent).where(OrderEvent.order_id == order.id, OrderEvent.event_type == "order_rejected_by_safety")
     ).all()
@@ -157,6 +163,44 @@ def test_live_gateway_order_requires_user_opt_in() -> None:
     assert rejected_order.rejected_at is not None
     assert safety_events
     assert safety_events[0].message == "User live trading opt-in is disabled."
+
+
+def test_order_approval_requires_confirmation_text() -> None:
+    db = _session()
+    engine = TradingEngine(
+        db,
+        PaperBroker(),
+        Settings(openai_api_key=None, broker_mode="paper"),
+        user_id=1,
+    )
+    order = engine.create_manual_order(
+        OrderCreate(
+            symbol="A005930",
+            side="BUY",
+            quantity=1,
+            order_type="LIMIT",
+            limit_price=Decimal("70000"),
+        )
+    )
+
+    preview = engine.preview_order_approval(order.id)
+    try:
+        engine.approve_order(order.id, "APPROVE WRONG")
+    except OrderApprovalConfirmationError:
+        pass
+    else:
+        raise AssertionError("Expected confirmation failure.")
+
+    failed_events = db.scalars(
+        select(OrderEvent).where(
+            OrderEvent.order_id == order.id,
+            OrderEvent.event_type == "order_approval_confirmation_failed",
+        )
+    ).all()
+
+    assert preview.confirmation_text == f"APPROVE {order.id}"
+    assert failed_events
+    assert order.status == ORDER_PENDING_APPROVAL
 
 
 def test_pending_order_can_be_canceled_locally() -> None:
@@ -207,7 +251,8 @@ def test_refresh_submitted_order_can_fill_and_update_paper_position() -> None:
         )
     )
 
-    submitted_order = engine.approve_order(order.id)
+    preview = engine.preview_order_approval(order.id)
+    submitted_order = engine.approve_order(order.id, preview.confirmation_text)
     assert submitted_order.status == ORDER_SUBMITTED
     assert db.scalar(select(Position).where(Position.symbol == "A005930")) is None
 
