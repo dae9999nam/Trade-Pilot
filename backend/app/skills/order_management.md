@@ -25,15 +25,53 @@ Request body: `OrderCreate`
 
 Response body: `OrderView`
 
-### `POST /api/orders/{order_id}/approve`
+### `POST /api/orders/{order_id}/approval-preview`
 
-Submits an approvable order to the active broker.
+Builds the required pre-trade confirmation package for an approvable order and
+writes an `order_events` row with event type `order_approval_previewed`.
 
 Path variables:
 
 | Variable | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `order_id` | integer | yes | Existing order ID. |
+
+Response body: `OrderApprovalPreview`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `order_id` | integer | Order ID being reviewed. |
+| `symbol` | string | Stock symbol. |
+| `side` | string | `BUY` or `SELL`. |
+| `quantity` | integer | Number of shares. |
+| `order_type` | string | `MARKET` or `LIMIT`. |
+| `limit_price` | decimal or null | Submitted limit price. |
+| `estimated_price` | decimal | Limit price or current broker quote for market orders. |
+| `estimated_notional_krw` | decimal | Quantity multiplied by estimated price. |
+| `broker_mode` | string | Active broker mode. |
+| `system_live_trading_enabled` | boolean | Whether the system live trading gates are open. |
+| `effective_live_trading_enabled` | boolean | Whether system and user live gates are both open. |
+| `safety_status` | `PASS` / `BLOCKED` | Whether broker submission can proceed. |
+| `safety_reasons` | array | Blocking reasons, if any. |
+| `confirmation_text` | string | Exact text the user must submit to approve. |
+| `can_submit` | boolean | Whether `/approve` can submit with the confirmation text. |
+
+### `POST /api/orders/{order_id}/approve`
+
+Submits an approvable order to the active broker only after the caller sends the
+exact confirmation text returned by `/approval-preview`.
+
+Path variables:
+
+| Variable | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `order_id` | integer | yes | Existing order ID. |
+
+Request body:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `confirmation_text` | string | yes | Must exactly match the preview `confirmation_text`, e.g. `APPROVE 123`. |
 
 Behavior:
 
@@ -43,8 +81,10 @@ Behavior:
 | `SUBMISSION_FAILED` | Retry submission with a new `submission_attempts` increment. |
 | Any other status | Return the order unchanged. |
 
-Approval writes `order_events` for approval, broker submission start, and broker
-result or failure.
+Approval writes `order_events` for confirmation failures, approval, broker
+submission start, and broker result or failure. The approval event payload
+contains audit details such as actor user ID, broker mode, estimated notional,
+live gate state, and safety status.
 
 ### `POST /api/orders/{order_id}/cancel`
 
@@ -127,7 +167,7 @@ Response body: array of `OrderEventView`
 
 | Status | Meaning | Next common status |
 | --- | --- | --- |
-| `PENDING_APPROVAL` | Order is staged but not approved. | `APPROVED`, `CANCELED` |
+| `PENDING_APPROVAL` | Order is staged but not approved. | `APPROVED`, `REJECTED`, `CANCELED` |
 | `APPROVED` | User approved the order for broker submission. | `SUBMITTING`, `CANCELED` |
 | `SUBMITTING` | Backend is sending the order to the broker adapter. | `SUBMITTED`, `FILLED`, `REJECTED`, `SUBMISSION_FAILED` |
 | `SUBMITTED` | Broker accepted the order but the app has not observed a fill. | `PARTIALLY_FILLED`, `FILLED`, `REJECTED`, `CANCELED` |
@@ -160,7 +200,8 @@ to `SUBMISSION_FAILED`.
 - Do not infer missing order fields. Ask the user for symbol, side, quantity, and
   limit price when needed.
 - Manual order staging does not run `RiskManager` in the current implementation.
-- Approval is the action that sends an order to the broker.
+- Approval is the action that sends an order to the broker. Always call
+  `/approval-preview` first and submit the returned `confirmation_text`.
 - Do not retry a terminal order. Only `can_approve=true` orders are valid
   approve/retry candidates.
 - Do not cancel a terminal order. Only `can_cancel=true` orders are valid cancel

@@ -107,6 +107,28 @@ def transition_order(
     )
 
 
+def record_order_event(
+    db: Session,
+    order: Order,
+    *,
+    event_type: str,
+    message: str | None = None,
+    broker_order_id: str | None = None,
+    event_payload: dict[str, Any] | None = None,
+) -> None:
+    db.add(
+        OrderEvent(
+            order_id=order.id,
+            from_status=order.status,
+            to_status=order.status,
+            event_type=event_type,
+            message=message,
+            broker_order_id=broker_order_id,
+            event_payload=event_payload,
+        )
+    )
+
+
 def initialize_order_status(
     db: Session,
     order: Order,

@@ -10,6 +10,7 @@ from app.schemas import (
     DecisionRequest,
     DecisionResponse,
     MarketSnapshot,
+    OrderApprovalPreview,
     OrderCreate,
     TradeDecisionPayload,
 )
@@ -29,6 +30,7 @@ from app.services.order_lifecycle import (
     can_transition,
     initialize_order_status,
     is_terminal,
+    record_order_event,
     transition_order,
 )
 from app.services.risk import RiskManager
@@ -39,6 +41,14 @@ from app.services.trading_safety import (
     effective_min_decision_confidence,
     get_or_create_user_trading_settings,
 )
+
+
+class OrderNotFoundError(ValueError):
+    pass
+
+
+class OrderApprovalConfirmationError(ValueError):
+    pass
 
 
 class TradingEngine:
@@ -131,19 +141,44 @@ class TradingEngine:
         self.db.refresh(order)
         return order
 
-    def approve_order(self, order_id: int) -> Order:
+    def preview_order_approval(self, order_id: int) -> OrderApprovalPreview:
+        order = self._get_user_order(order_id)
+        preview = self._build_order_approval_preview(order)
+        record_order_event(
+            self.db,
+            order,
+            event_type="order_approval_previewed",
+            message="Order approval preview generated.",
+            event_payload=self._approval_audit_payload(preview),
+        )
+        self.db.commit()
+        return preview
+
+    def approve_order(self, order_id: int, confirmation_text: str) -> Order:
         order = self._get_user_order(order_id)
         if not can_approve(order):
             return order
 
-        safety_failure = self._order_safety_failure(order)
-        if safety_failure:
+        preview = self._build_order_approval_preview(order)
+        if confirmation_text.strip() != preview.confirmation_text:
+            record_order_event(
+                self.db,
+                order,
+                event_type="order_approval_confirmation_failed",
+                message="Order approval confirmation text did not match.",
+                event_payload=self._approval_audit_payload(preview),
+            )
+            self.db.commit()
+            raise OrderApprovalConfirmationError("Order approval confirmation text did not match.")
+
+        if not preview.can_submit:
             transition_order(
                 self.db,
                 order,
                 ORDER_REJECTED,
                 event_type="order_rejected_by_safety",
-                message=safety_failure,
+                message="; ".join(preview.safety_reasons) or "Order safety check blocked submission.",
+                event_payload=self._approval_audit_payload(preview),
             )
             self.db.commit()
             self.db.refresh(order)
@@ -155,6 +190,7 @@ class TradingEngine:
             ORDER_APPROVED,
             event_type="order_approved",
             message="Order approved for broker submission.",
+            event_payload=self._approval_audit_payload(preview),
         )
         order.submission_attempts += 1
         transition_order(
@@ -349,7 +385,7 @@ class TradingEngine:
             event_type="ai_decision_order_created",
             message="Created from approved AI decision.",
         )
-        self.approve_order(order.id)
+        self.approve_order(order.id, self._approval_confirmation_text(order))
         return order
 
     def _get_user_order(self, order_id: int) -> Order:
@@ -357,23 +393,71 @@ class TradingEngine:
             select(Order).where(Order.id == order_id, Order.user_id == self.user_id)
         )
         if order is None:
-            raise ValueError("Order not found.")
+            raise OrderNotFoundError("Order not found.")
         return order
 
-    def _order_safety_failure(self, order: Order) -> str | None:
+    def _build_order_approval_preview(self, order: Order) -> OrderApprovalPreview:
+        price = self._approval_price(order)
+        safety_reasons = self._order_safety_reasons(order, price)
+        return OrderApprovalPreview(
+            order_id=order.id,
+            symbol=order.symbol,
+            side=order.side,
+            quantity=order.quantity,
+            order_type=order.order_type,
+            limit_price=order.limit_price,
+            estimated_price=price,
+            estimated_notional_krw=Decimal(order.quantity) * price,
+            broker_mode=self.settings.broker_mode,
+            system_live_trading_enabled=self.settings.live_trading_enabled,
+            effective_live_trading_enabled=effective_live_trading_enabled(
+                get_or_create_user_trading_settings(self.db, self.user_id, self.settings),
+                self.settings,
+            ),
+            safety_status="BLOCKED" if safety_reasons else "PASS",
+            safety_reasons=safety_reasons,
+            confirmation_text=self._approval_confirmation_text(order),
+            can_submit=can_approve(order) and not safety_reasons,
+        )
+
+    def _approval_price(self, order: Order) -> Decimal:
+        if order.limit_price is not None:
+            return order.limit_price
+        return self.broker.get_quote(order.symbol).price
+
+    def _order_safety_reasons(self, order: Order, price: Decimal) -> list[str]:
         safety = get_or_create_user_trading_settings(self.db, self.user_id, self.settings)
-        price = order.limit_price
-        if price is None:
-            price = self.broker.get_quote(order.symbol).price
         notional = Decimal(order.quantity) * price
+        reasons: list[str] = []
         if notional > Decimal(effective_max_order_krw(safety, self.settings)):
-            return "Order notional exceeds max order limit."
+            reasons.append("Order notional exceeds max order limit.")
         if self.settings.broker_mode in {"creon", "creon_gateway"}:
             if not self.settings.live_trading_enabled:
-                return "System live trading gate is disabled."
-            if not effective_live_trading_enabled(safety, self.settings):
-                return "User live trading opt-in is disabled."
-        return None
+                reasons.append("System live trading gate is disabled.")
+            elif not effective_live_trading_enabled(safety, self.settings):
+                reasons.append("User live trading opt-in is disabled.")
+        return reasons
+
+    def _approval_confirmation_text(self, order: Order) -> str:
+        return f"APPROVE {order.id}"
+
+    def _approval_audit_payload(self, preview: OrderApprovalPreview) -> dict[str, object]:
+        return {
+            "actor_user_id": self.user_id,
+            "order_id": preview.order_id,
+            "symbol": preview.symbol,
+            "side": preview.side,
+            "quantity": preview.quantity,
+            "order_type": preview.order_type,
+            "estimated_price": str(preview.estimated_price),
+            "estimated_notional_krw": str(preview.estimated_notional_krw),
+            "broker_mode": preview.broker_mode,
+            "system_live_trading_enabled": preview.system_live_trading_enabled,
+            "effective_live_trading_enabled": preview.effective_live_trading_enabled,
+            "safety_status": preview.safety_status,
+            "safety_reasons": preview.safety_reasons,
+            "confirmation_required": True,
+        }
 
     def _normalize_broker_status(self, broker_status: str) -> str:
         normalized = broker_status.upper()

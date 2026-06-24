@@ -868,6 +868,39 @@ dd {
   border-top: 1px solid #edf1f5;
 }
 
+.approval-preview {
+  border-top: 1px solid #edf1f5;
+  padding-top: 14px;
+  display: grid;
+  gap: 14px;
+}
+
+.approval-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.approval-grid div {
+  min-height: 58px;
+  border: 1px solid #edf1f5;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.confirmation-field {
+  grid-column: 1 / -1;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .order-event {
   display: grid;
   grid-template-columns: 110px 140px minmax(0, 1fr);
@@ -988,6 +1021,18 @@ dd {
   .summary-grid {
     grid-template-columns: 1fr;
   }
+
+  .approval-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .approval-actions {
+    justify-content: stretch;
+  }
+
+  .approval-actions button {
+    flex: 1;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1094,6 +1139,8 @@ dd {
   .empty-row,
   .browser-toolbar,
   .order-card,
+  .approval-preview,
+  .approval-grid div,
   .system-locks {
     border-color: #2c3647;
   }

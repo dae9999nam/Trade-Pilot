@@ -29,6 +29,7 @@ import type {
   AssistantArtifact,
   AssistantQueryResponse,
   MoneyValue,
+  OrderApprovalPreview,
   OrderEventView,
   OrderView,
   PositionView,
@@ -50,6 +51,8 @@ export default function App() {
   const [positions, setPositions] = useState<PositionView[]>([]);
   const [orders, setOrders] = useState<OrderView[]>([]);
   const [orderEvents, setOrderEvents] = useState<Record<number, OrderEventView[]>>({});
+  const [approvalPreview, setApprovalPreview] = useState<OrderApprovalPreview | null>(null);
+  const [approvalConfirmation, setApprovalConfirmation] = useState("");
   const [tradingSafety, setTradingSafety] = useState<TradingSafetySettings | null>(null);
   const [assistantResponse, setAssistantResponse] = useState<AssistantQueryResponse | null>(null);
   const [query, setQuery] = useState("A005930을 분석하고 매수, 매도, 보유 중 어떤 선택이 적절한지 알려줘.");
@@ -67,6 +70,8 @@ export default function App() {
       setPositions([]);
       setOrders([]);
       setOrderEvents({});
+      setApprovalPreview(null);
+      setApprovalConfirmation("");
       setTradingSafety(null);
       return;
     }
@@ -160,6 +165,8 @@ export default function App() {
       setPositions([]);
       setOrders([]);
       setOrderEvents({});
+      setApprovalPreview(null);
+      setApprovalConfirmation("");
       setTradingSafety(null);
       setLoading(false);
     }
@@ -191,7 +198,7 @@ export default function App() {
     }
   }
 
-  async function approve(orderId: number) {
+  async function openApprovalPreview(orderId: number) {
     if (!user) {
       setError("Sign in before approving orders.");
       return;
@@ -200,11 +207,31 @@ export default function App() {
     setError(null);
 
     try {
-      await api.approveOrder(orderId);
+      const preview = await api.orderApprovalPreview(orderId);
+      setApprovalPreview(preview);
+      setApprovalConfirmation("");
+      await loadOrderEvents(orderId);
+    } catch (nextError) {
+      setError(String(nextError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function confirmApproval(orderId: number) {
+    if (!approvalPreview) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      await api.approveOrder(orderId, approvalConfirmation);
+      setApprovalPreview(null);
+      setApprovalConfirmation("");
       await refresh();
       await loadOrderEvents(orderId);
     } catch (nextError) {
       setError(String(nextError));
+      await loadOrderEvents(orderId);
     } finally {
       setLoading(false);
     }
@@ -352,10 +379,18 @@ export default function App() {
 
         {view === "orders" ? (
           <OrdersPanel
+            approvalConfirmation={approvalConfirmation}
+            approvalPreview={approvalPreview}
             eventsByOrder={orderEvents}
             loading={loading}
-            onApprove={approve}
+            onApprove={openApprovalPreview}
             onCancel={cancelOrder}
+            onCloseApprovalPreview={() => {
+              setApprovalPreview(null);
+              setApprovalConfirmation("");
+            }}
+            onConfirmApproval={confirmApproval}
+            onConfirmationChange={setApprovalConfirmation}
             onLoadEvents={loadOrderEvents}
             onRefresh={refreshOrder}
             orders={orders}
@@ -1123,19 +1158,29 @@ function TradingSafetyPanel({
 }
 
 function OrdersPanel({
+  approvalConfirmation,
+  approvalPreview,
   eventsByOrder,
   orders,
   loading,
   onApprove,
   onCancel,
+  onCloseApprovalPreview,
+  onConfirmApproval,
+  onConfirmationChange,
   onLoadEvents,
   onRefresh
 }: {
+  approvalConfirmation: string;
+  approvalPreview: OrderApprovalPreview | null;
   eventsByOrder: Record<number, OrderEventView[]>;
   orders: OrderView[];
   loading: boolean;
   onApprove: (orderId: number) => void;
   onCancel: (orderId: number) => void;
+  onCloseApprovalPreview: () => void;
+  onConfirmApproval: (orderId: number) => void;
+  onConfirmationChange: (value: string) => void;
   onLoadEvents: (orderId: number) => void;
   onRefresh: (orderId: number) => void;
 }) {
@@ -1165,7 +1210,7 @@ function OrdersPanel({
                 {order.can_approve ? (
                   <button className="mini-button" type="button" onClick={() => onApprove(order.id)} disabled={loading}>
                     <CheckCircle2 size={15} />
-                    {order.status === "SUBMISSION_FAILED" ? "Retry" : "Approve"}
+                    {order.status === "SUBMISSION_FAILED" ? "Review retry" : "Review"}
                   </button>
                 ) : null}
                 {!order.is_terminal ? (
@@ -1186,9 +1231,84 @@ function OrdersPanel({
                 </button>
               </div>
             </div>
+            {approvalPreview?.order_id === order.id ? (
+              <OrderApprovalPreviewPanel
+                confirmation={approvalConfirmation}
+                loading={loading}
+                onClose={onCloseApprovalPreview}
+                onConfirm={() => onConfirmApproval(order.id)}
+                onConfirmationChange={onConfirmationChange}
+                preview={approvalPreview}
+              />
+            ) : null}
             {eventsByOrder[order.id] ? <OrderTimeline events={eventsByOrder[order.id]} /> : null}
           </article>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function OrderApprovalPreviewPanel({
+  confirmation,
+  loading,
+  onClose,
+  onConfirm,
+  onConfirmationChange,
+  preview
+}: {
+  confirmation: string;
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  onConfirmationChange: (value: string) => void;
+  preview: OrderApprovalPreview;
+}) {
+  const confirmationMatches = confirmation.trim() === preview.confirmation_text;
+  return (
+    <section className="approval-preview">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Pre-trade confirmation</p>
+          <h3>{preview.symbol} {preview.side}</h3>
+        </div>
+        <Badge tone={preview.safety_status === "PASS" ? "green" : "red"}>{preview.safety_status}</Badge>
+      </div>
+      <div className="approval-grid">
+        <Row label="Quantity" value={String(preview.quantity)} />
+        <Row label="Order type" value={preview.order_type} />
+        <Row label="Estimated price" value={formatKrw(preview.estimated_price)} />
+        <Row label="Estimated notional" value={formatKrw(preview.estimated_notional_krw)} />
+        <Row label="Broker mode" value={preview.broker_mode} />
+        <Row label="Live armed" value={String(preview.effective_live_trading_enabled)} />
+      </div>
+      {preview.safety_reasons.length > 0 ? (
+        <div className="reason-list">
+          {preview.safety_reasons.map((reason) => (
+            <span key={reason}>{reason}</span>
+          ))}
+        </div>
+      ) : null}
+      <label className="confirmation-field">
+        Type confirmation
+        <input
+          value={confirmation}
+          onChange={(event) => onConfirmationChange(event.target.value)}
+          placeholder={preview.confirmation_text}
+        />
+      </label>
+      <div className="approval-actions">
+        <button className="mini-button" type="button" onClick={onClose} disabled={loading}>
+          Cancel
+        </button>
+        <button
+          className="primary"
+          type="button"
+          onClick={onConfirm}
+          disabled={loading || !preview.can_submit || !confirmationMatches}
+        >
+          Confirm broker submission
+        </button>
       </div>
     </section>
   );
