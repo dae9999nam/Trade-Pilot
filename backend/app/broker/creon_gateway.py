@@ -1,8 +1,16 @@
+from datetime import datetime
 from decimal import Decimal
 
 import httpx
 
-from app.broker.base import Broker, BrokerOrder, BrokerOrderResult, BrokerOrderStatusResult
+from app.broker.base import (
+    Broker,
+    BrokerAccountPosition,
+    BrokerAccountSnapshot,
+    BrokerOrder,
+    BrokerOrderResult,
+    BrokerOrderStatusResult,
+)
 from app.core.config import Settings
 from app.schemas import MarketSnapshot
 
@@ -85,6 +93,36 @@ class CreonGatewayBroker(Broker):
             as_of=data.get("as_of"),
             raw_payload=data.get("raw_payload"),
         )
+
+    def get_account_snapshot(self) -> BrokerAccountSnapshot:
+        response = self.client.get("/account")
+        self._raise_for_gateway_error(response)
+        data = response.json()
+        return BrokerAccountSnapshot(
+            source=data.get("source", self.name),
+            cash_krw=Decimal(str(data["cash_krw"])) if data.get("cash_krw") is not None else None,
+            positions=[
+                BrokerAccountPosition(
+                    symbol=item["symbol"],
+                    quantity=int(item["quantity"]),
+                    avg_price=Decimal(str(item["avg_price"])) if item.get("avg_price") is not None else None,
+                    market_price=(
+                        Decimal(str(item["market_price"])) if item.get("market_price") is not None else None
+                    ),
+                    raw_payload=item.get("raw_payload"),
+                )
+                for item in data.get("positions", [])
+            ],
+            as_of=self._parse_datetime(data.get("as_of")),
+            raw_payload=data.get("raw_payload"),
+        )
+
+    def _parse_datetime(self, value: object) -> datetime | None:
+        if isinstance(value, datetime):
+            return value
+        if not isinstance(value, str) or not value:
+            return None
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
     def _raise_for_gateway_error(self, response: httpx.Response) -> None:
         if response.is_success:

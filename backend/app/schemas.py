@@ -276,6 +276,45 @@ class PositionView(BaseModel):
     model_config = {"from_attributes": True}
 
 
+AccountReconciliationStatus = Literal[
+    "MATCHED",
+    "MISSING_IN_APP",
+    "MISSING_IN_BROKER",
+    "QUANTITY_MISMATCH",
+    "BROKER_UNAVAILABLE",
+]
+BrokerSnapshotStatus = Literal["PAPER", "SYNCED", "UNAVAILABLE"]
+
+
+class AccountPositionSnapshot(BaseModel):
+    symbol: str
+    quantity: int
+    avg_price: Decimal | None = None
+    market_price: Decimal | None = None
+
+
+class AccountReconciliationRow(BaseModel):
+    symbol: str
+    app_quantity: int
+    broker_quantity: int | None
+    app_market_value: Decimal
+    broker_market_value: Decimal | None = None
+    status: AccountReconciliationStatus
+    message: str | None = None
+
+
+class AccountReconciliationResponse(BaseModel):
+    broker_mode: str
+    broker_source: str
+    broker_status: BrokerSnapshotStatus
+    message: str
+    cash_krw: Decimal | None = None
+    app_positions: list[AccountPositionSnapshot] = Field(default_factory=list)
+    broker_positions: list[AccountPositionSnapshot] = Field(default_factory=list)
+    rows: list[AccountReconciliationRow] = Field(default_factory=list)
+    as_of: datetime | None = None
+
+
 class DecisionListItem(BaseModel):
     id: int
     symbol: str

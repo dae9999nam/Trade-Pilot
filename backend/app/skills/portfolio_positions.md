@@ -11,6 +11,9 @@ average price, market price, or portfolio market value.
 
 Lists all positions sorted by symbol.
 
+For live account comparison, use `GET /api/account/reconciliation` from
+`account_reconciliation.md` instead of relying on stored positions alone.
+
 ## Output variables
 
 Response body: array of `PositionView`
@@ -29,11 +32,10 @@ Response body: array of `PositionView`
 | Paper order `FILLED` | `TradingEngine._upsert_paper_position` updates the stored position. |
 | Buy order | Increases quantity and recalculates average price. |
 | Sell order | Decreases quantity and preserves the existing average price while shares remain. If quantity falls to or below zero, stored quantity becomes `0`. |
-| Live CREON order | Current backend does not reconcile live broker holdings into `positions`. |
+| Live CREON order | Stored positions must be compared with broker snapshots through account reconciliation. |
 
 ## Safety notes
 
-- `positions` reflect the application's stored state, not necessarily a live
-  broker account reconciliation.
-- For live trading, confirm actual broker positions through CREON or account
-  systems before making high-stakes decisions.
+- `positions` reflect the application's stored state.
+- For live trading, check `account_reconciliation.md` and do not claim broker
+  holdings are synchronized unless `broker_status` is `SYNCED` and rows match.

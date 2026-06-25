@@ -8,7 +8,14 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Iterator
 
 from config import settings
-from schemas import GatewayRuntimeStatus, OrderRequest, OrderResponse, OrderStatusResponse, QuoteResponse
+from schemas import (
+    AccountSnapshotResponse,
+    GatewayRuntimeStatus,
+    OrderRequest,
+    OrderResponse,
+    OrderStatusResponse,
+    QuoteResponse,
+)
 
 
 _COM_LOCK = threading.RLock()
@@ -143,6 +150,14 @@ class CreonClient:
             "CREON order cancellation is not implemented in the gateway yet. "
             "Cancel live orders directly in CREON Plus until this endpoint is implemented.",
             code="creon_order_cancel_not_implemented",
+        )
+
+    def account_snapshot(self) -> AccountSnapshotResponse:
+        self._ensure_runtime(require_account=True)
+        raise CreonConfigurationError(
+            "CREON account snapshot reconciliation is not implemented in the gateway yet. "
+            "Keep live holdings verified in CREON Plus until this endpoint is mapped to CpTrade account data.",
+            code="creon_account_snapshot_not_implemented",
         )
 
     def _ensure_runtime(self, *, require_account: bool) -> None:

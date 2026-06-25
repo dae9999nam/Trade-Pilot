@@ -20,6 +20,7 @@ from app.db.session import get_db
 from app.market.data import MarketDataService
 from app.models import Order, OrderEvent, Position, TradeDecision, User, UserSession
 from app.schemas import (
+    AccountReconciliationResponse,
     AssistantQueryRequest,
     AssistantQueryResponse,
     DashboardSummary,
@@ -41,6 +42,7 @@ from app.schemas import (
     UserProfile,
     UserProfileUpdate,
 )
+from app.services.account_reconciliation import AccountReconciliationService
 from app.services.assistant_workspace import AssistantWorkspace
 from app.services.order_lifecycle import (
     ORDER_FILLED,
@@ -388,6 +390,14 @@ def list_positions(
     return list(
         db.scalars(select(Position).where(Position.user_id == user.id).order_by(Position.symbol.asc())).all()
     )
+
+
+@router.get("/account/reconciliation", response_model=AccountReconciliationResponse)
+def account_reconciliation(
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(require_auth),
+) -> AccountReconciliationResponse:
+    return AccountReconciliationService(db, get_broker(), settings, user.id).run()
 
 
 def _order_view(order: Order) -> OrderView:

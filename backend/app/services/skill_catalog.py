@@ -9,6 +9,7 @@ SKILL_ORDER = [
     "risk_guardrails.md",
     "order_management.md",
     "portfolio_positions.md",
+    "account_reconciliation.md",
     "decision_history.md",
     "admin_dashboard.md",
     "auth_admin_session.md",
