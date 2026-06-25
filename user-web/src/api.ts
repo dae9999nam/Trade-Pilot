@@ -216,6 +216,44 @@ export type PositionView = {
   market_price: MoneyValue;
 };
 
+export type AccountReconciliationStatus =
+  | "MATCHED"
+  | "MISSING_IN_APP"
+  | "MISSING_IN_BROKER"
+  | "QUANTITY_MISMATCH"
+  | "BROKER_UNAVAILABLE";
+
+export type BrokerSnapshotStatus = "PAPER" | "SYNCED" | "UNAVAILABLE";
+
+export type AccountPositionSnapshot = {
+  symbol: string;
+  quantity: number;
+  avg_price: MoneyValue | null;
+  market_price: MoneyValue | null;
+};
+
+export type AccountReconciliationRow = {
+  symbol: string;
+  app_quantity: number;
+  broker_quantity: number | null;
+  app_market_value: MoneyValue;
+  broker_market_value: MoneyValue | null;
+  status: AccountReconciliationStatus;
+  message: string | null;
+};
+
+export type AccountReconciliationResponse = {
+  broker_mode: string;
+  broker_source: string;
+  broker_status: BrokerSnapshotStatus;
+  message: string;
+  cash_krw: MoneyValue | null;
+  app_positions: AccountPositionSnapshot[];
+  broker_positions: AccountPositionSnapshot[];
+  rows: AccountReconciliationRow[];
+  as_of: string | null;
+};
+
 export class ApiClient {
   async register(email: string, password: string): Promise<LoginResponse> {
     return this.post("/api/auth/register", { email, password });
@@ -287,6 +325,10 @@ export class ApiClient {
 
   async positions(): Promise<PositionView[]> {
     return this.get("/api/positions");
+  }
+
+  async accountReconciliation(): Promise<AccountReconciliationResponse> {
+    return this.get("/api/account/reconciliation");
   }
 
   private async get<T>(path: string): Promise<T> {

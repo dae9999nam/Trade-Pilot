@@ -278,6 +278,7 @@ button:disabled {
 .query-panel,
 .answer-panel,
 .artifact-card,
+.reconciliation-panel,
 .metric-card,
 .source-panel,
 .settings-panel,
@@ -291,6 +292,7 @@ button:disabled {
 .query-panel,
 .answer-panel,
 .artifact-card,
+.reconciliation-panel,
 .source-panel,
 .settings-panel,
 .orders-workspace {
@@ -440,6 +442,30 @@ input {
 
 .artifact-head {
   margin-bottom: 14px;
+}
+
+.reconciliation-panel {
+  padding: 20px;
+}
+
+.reconciliation-meta {
+  margin: 14px 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reconciliation-meta div {
+  min-height: 64px;
+  border: 1px solid #edf1f5;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.reconciliation-row {
+  grid-template-columns: minmax(120px, 1fr) minmax(96px, 0.7fr) minmax(110px, 0.7fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(160px, 1fr);
 }
 
 .artifact-head svg {
@@ -985,6 +1011,7 @@ dd {
   .context-rail,
   .mini-metric-grid,
   .pie-layout,
+  .reconciliation-meta,
   .system-locks,
   .settings-form {
     grid-template-columns: 1fr;
@@ -1055,6 +1082,7 @@ dd {
   .query-panel,
   .answer-panel,
   .artifact-card,
+  .reconciliation-panel,
   .metric-card,
   .source-panel,
   .settings-panel,
@@ -1141,6 +1169,7 @@ dd {
   .order-card,
   .approval-preview,
   .approval-grid div,
+  .reconciliation-meta div,
   .system-locks {
     border-color: #2c3647;
   }

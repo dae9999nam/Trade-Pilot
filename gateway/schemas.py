@@ -45,6 +45,22 @@ class QuoteResponse(BaseModel):
     as_of: datetime | None = None
 
 
+class AccountPositionResponse(BaseModel):
+    symbol: str
+    quantity: int
+    avg_price: Decimal | None = None
+    market_price: Decimal | None = None
+    raw_payload: dict | None = None
+
+
+class AccountSnapshotResponse(BaseModel):
+    source: str = "creon"
+    cash_krw: Decimal | None = None
+    positions: list[AccountPositionResponse] = Field(default_factory=list)
+    as_of: datetime | None = None
+    raw_payload: dict | None = None
+
+
 class OrderRequest(BaseModel):
     symbol: str = Field(min_length=2, max_length=16)
     side: Literal["BUY", "SELL"]

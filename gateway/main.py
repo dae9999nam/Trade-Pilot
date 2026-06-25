@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from config import settings
 from creon_client import CreonClient, CreonGatewayError
 from schemas import (
+    AccountSnapshotResponse,
     GatewayErrorDetail,
     GatewayHealthResponse,
     GatewayReadinessResponse,
@@ -85,6 +86,11 @@ def ready(response: Response) -> GatewayReadinessResponse:
 @app.get("/quote/{symbol}", response_model=QuoteResponse, dependencies=[Depends(require_token)])
 def quote(symbol: str = Path(min_length=2, max_length=16)) -> QuoteResponse:
     return client.quote(symbol)
+
+
+@app.get("/account", response_model=AccountSnapshotResponse, dependencies=[Depends(require_token)])
+def account() -> AccountSnapshotResponse:
+    return client.account_snapshot()
 
 
 @app.post("/orders", response_model=OrderResponse, dependencies=[Depends(require_token)])

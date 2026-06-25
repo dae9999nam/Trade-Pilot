@@ -26,6 +26,7 @@ import {
 
 import { ApiClient } from "./api";
 import type {
+  AccountReconciliationResponse,
   AssistantArtifact,
   AssistantQueryResponse,
   MoneyValue,
@@ -49,6 +50,7 @@ export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [positions, setPositions] = useState<PositionView[]>([]);
+  const [accountReconciliation, setAccountReconciliation] = useState<AccountReconciliationResponse | null>(null);
   const [orders, setOrders] = useState<OrderView[]>([]);
   const [orderEvents, setOrderEvents] = useState<Record<number, OrderEventView[]>>({});
   const [approvalPreview, setApprovalPreview] = useState<OrderApprovalPreview | null>(null);
@@ -68,6 +70,7 @@ export default function App() {
 
     if (!currentUser) {
       setPositions([]);
+      setAccountReconciliation(null);
       setOrders([]);
       setOrderEvents({});
       setApprovalPreview(null);
@@ -76,14 +79,16 @@ export default function App() {
       return;
     }
 
-    const [nextPositions, nextOrders, nextTradingSafety] = await Promise.all([
+    const [nextPositions, nextOrders, nextTradingSafety, nextAccountReconciliation] = await Promise.all([
       api.positions(),
       api.orders(),
-      api.tradingSafety()
+      api.tradingSafety(),
+      api.accountReconciliation()
     ]);
     setPositions(nextPositions);
     setOrders(nextOrders);
     setTradingSafety(nextTradingSafety);
+    setAccountReconciliation(nextAccountReconciliation);
   }
 
   useEffect(() => {
@@ -163,6 +168,7 @@ export default function App() {
       setUser(null);
       setAssistantResponse(null);
       setPositions([]);
+      setAccountReconciliation(null);
       setOrders([]);
       setOrderEvents({});
       setApprovalPreview(null);
@@ -345,6 +351,7 @@ export default function App() {
               portfolioValue={portfolioValue}
               positions={positions}
             />
+            <AccountReconciliationPanel reconciliation={accountReconciliation} />
             <PositionsPanel positions={positions} />
           </section>
         ) : null}
@@ -838,6 +845,54 @@ function PortfolioOverview({
       <Metric icon={<Activity />} label="Positions" value={String(activePositions)} />
       <Metric icon={<Clock3 />} label="Open orders" value={String(openOrders)} />
       <Metric icon={<ShieldCheck />} label="Unrealized P/L" value={formatKrw(pnl)} />
+    </section>
+  );
+}
+
+function AccountReconciliationPanel({
+  reconciliation
+}: {
+  reconciliation: AccountReconciliationResponse | null;
+}) {
+  const columns = ["symbol", "app qty", "broker qty", "app value", "broker value", "status"];
+  return (
+    <section className="reconciliation-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Account reconciliation</p>
+          <h3>Application vs broker ledger</h3>
+        </div>
+        <Badge tone={reconciliation ? reconciliationTone(reconciliation.broker_status) : "amber"}>
+          {reconciliation?.broker_status ?? "Loading"}
+        </Badge>
+      </div>
+      <div className="reconciliation-meta">
+        <Row label="Broker" value={reconciliation?.broker_source ?? "-"} />
+        <Row label="Mode" value={reconciliation?.broker_mode ?? "-"} />
+        <Row label="Cash" value={reconciliation?.cash_krw == null ? "-" : formatKrw(reconciliation.cash_krw)} />
+        <Row label="As of" value={formatDateTime(reconciliation?.as_of)} />
+      </div>
+      {reconciliation?.message ? <p className="artifact-description">{reconciliation.message}</p> : null}
+      <div className="data-table">
+        <div className="data-row header reconciliation-row">
+          {columns.map((column) => <span key={column}>{column}</span>)}
+        </div>
+        {!reconciliation || reconciliation.rows.length === 0 ? (
+          <div className="empty-row">No active positions to reconcile</div>
+        ) : null}
+        {reconciliation?.rows.map((row) => (
+          <div className="data-row reconciliation-row" key={row.symbol}>
+            <span>{row.symbol}</span>
+            <span>{row.app_quantity.toLocaleString()}</span>
+            <span>{row.broker_quantity == null ? "-" : row.broker_quantity.toLocaleString()}</span>
+            <span>{formatKrw(row.app_market_value)}</span>
+            <span>{row.broker_market_value == null ? "-" : formatKrw(row.broker_market_value)}</span>
+            <span>
+              <Badge tone={reconciliationRowTone(row.status)}>{row.status}</Badge>
+            </span>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -1397,6 +1452,19 @@ function orderTone(status: string): Tone {
   if (status === "PARTIALLY_FILLED" || status === "APPROVED") return "amber";
   if (status === "CANCELED") return "slate";
   return "amber";
+}
+
+function reconciliationTone(status: string): Tone {
+  if (status === "PAPER" || status === "SYNCED") return "green";
+  if (status === "UNAVAILABLE") return "red";
+  return "amber";
+}
+
+function reconciliationRowTone(status: string): Tone {
+  if (status === "MATCHED") return "green";
+  if (status === "BROKER_UNAVAILABLE") return "red";
+  if (status === "QUANTITY_MISMATCH") return "amber";
+  return "blue";
 }
 
 function asRecordArray(value: unknown): Record<string, unknown>[] {

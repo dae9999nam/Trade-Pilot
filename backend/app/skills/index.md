@@ -30,6 +30,7 @@ OpenAI prompts used by `AgentOrchestrator` and the assistant workspace planner.
 | `risk_guardrails.md` | Explain deterministic risk checks and why decisions are approved or rejected. |
 | `order_management.md` | Stage manual orders, approve or retry approvable orders, list orders, and inspect lifecycle events. |
 | `portfolio_positions.md` | Read current holdings and portfolio position values. |
+| `account_reconciliation.md` | Compare application positions with broker account snapshots and explain sync gaps. |
 | `decision_history.md` | Read recent AI decisions and their risk outcomes. |
 | `admin_dashboard.md` | Read admin-only account summary and transaction views. |
 | `auth_admin_session.md` | Register users, authenticate cookie sessions, validate identity, and enforce admin role boundaries. |
