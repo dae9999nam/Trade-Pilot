@@ -49,10 +49,15 @@ Response body: `AccountReconciliationResponse`
 
 ## Current CREON limitation
 
-The gateway exposes `/account`, but CREON account snapshot COM mapping is not
-implemented yet. Until that mapping is added and verified on Windows 32-bit
-Python with CREON Plus, live reconciliation returns `UNAVAILABLE` instead of
-inventing broker holdings.
+The gateway `/account` endpoint maps CREON holdings through
+`CpTrade.CpTd6033`. It returns position quantities, available quantities,
+average price, current price, and market value when CREON Plus provides them.
+`cash_krw` is currently `null`; cash/deposit lookup requires a separate CREON
+cash balance mapping.
+
+If Windows, 32-bit Python, pywin32, CREON login, account config, or live gates
+are unavailable, live reconciliation returns `UNAVAILABLE` instead of inventing
+broker holdings.
 
 ## Safety notes
 

@@ -9,6 +9,7 @@ from typing import Any, Iterator
 
 from config import settings
 from schemas import (
+    AccountPositionResponse,
     AccountSnapshotResponse,
     GatewayRuntimeStatus,
     OrderRequest,
@@ -154,11 +155,7 @@ class CreonClient:
 
     def account_snapshot(self) -> AccountSnapshotResponse:
         self._ensure_runtime(require_account=True)
-        raise CreonConfigurationError(
-            "CREON account snapshot reconciliation is not implemented in the gateway yet. "
-            "Keep live holdings verified in CREON Plus until this endpoint is mapped to CpTrade account data.",
-            code="creon_account_snapshot_not_implemented",
-        )
+        return self._account_snapshot_once()
 
     def _ensure_runtime(self, *, require_account: bool) -> None:
         if platform.system() != "Windows":
@@ -257,6 +254,92 @@ class CreonClient:
             except Exception as exc:
                 raise CreonRequestError(f"CREON order request failed: {exc}") from exc
 
+    def _account_snapshot_once(self) -> AccountSnapshotResponse:
+        with self._with_com_lock(), self._com_apartment() as win32com_client:
+            try:
+                trade_util = win32com_client.Dispatch("CpTrade.CpTdUtil")
+                if trade_util.TradeInit(0) != 0:
+                    raise CreonUnavailableError(
+                        "CpTdUtil.TradeInit failed. Check CREON login and trade password."
+                    )
+
+                account = settings.creon_account_no
+                if not account:
+                    raise CreonConfigurationError("CREON_ACCOUNT_NO is required.")
+
+                balance = win32com_client.Dispatch("CpTrade.CpTd6033")
+                positions: list[AccountPositionResponse] = []
+                page_count = 0
+
+                while True:
+                    page_count += 1
+                    balance.SetInputValue(0, account)
+                    balance.SetInputValue(1, settings.creon_goods_code)
+                    balance.SetInputValue(2, 50)
+                    balance.BlockRequest()
+                    self._ensure_dib_success(balance, "account_snapshot")
+                    positions.extend(self._positions_from_6033(balance))
+
+                    if not bool(getattr(balance, "Continue", False)):
+                        break
+                    if page_count >= 20:
+                        raise CreonUnavailableError(
+                            "CREON account snapshot exceeded the maximum continuation page limit.",
+                            code="creon_account_snapshot_page_limit",
+                        )
+
+                return AccountSnapshotResponse(
+                    source=self.name,
+                    cash_krw=None,
+                    positions=positions,
+                    as_of=datetime.now(UTC),
+                    raw_payload={
+                        "object": "CpTrade.CpTd6033",
+                        "goods_code": settings.creon_goods_code,
+                        "page_count": page_count,
+                        "position_count": len(positions),
+                    },
+                )
+            except CreonGatewayError:
+                raise
+            except Exception as exc:
+                raise CreonRequestError(f"CREON account snapshot request failed: {exc}") from exc
+
+    def _positions_from_6033(self, dib: Any) -> list[AccountPositionResponse]:
+        row_count = self._required_int_header(dib, 7, "position_count")
+        positions: list[AccountPositionResponse] = []
+        for row in range(row_count):
+            position = self._position_from_6033_row(dib, row)
+            if position.quantity != 0:
+                positions.append(position)
+        return positions
+
+    def _position_from_6033_row(self, dib: Any, row: int) -> AccountPositionResponse:
+        raw_symbol = self._required_str_data(dib, 12, row, "symbol")
+        raw_market_price = self._optional_decimal_data(dib, 9, row)
+        return AccountPositionResponse(
+            symbol=self._normalize_account_symbol(raw_symbol),
+            quantity=self._required_int_data(dib, 7, row, "quantity"),
+            name=self._optional_str_data(dib, 0, row),
+            avg_price=self._optional_decimal_data(dib, 17, row),
+            market_price=abs(raw_market_price) if raw_market_price is not None else None,
+            available_quantity=self._optional_int_data(dib, 15, row),
+            market_value=self._optional_decimal_data(dib, 11, row),
+            raw_payload={
+                "source": "CpTrade.CpTd6033",
+                "row": row,
+                "fields": {
+                    "name": 0,
+                    "quantity": 7,
+                    "market_price": 9,
+                    "market_value": 11,
+                    "symbol": 12,
+                    "available_quantity": 15,
+                    "avg_price": 17,
+                },
+            },
+        )
+
     def _ensure_dib_success(self, dib: Any, context: str) -> None:
         status_code, message = self._dib_status(dib)
         if status_code != 0:
@@ -282,6 +365,12 @@ class CreonClient:
             raise CreonRequestError(f"CREON quote did not include {field_name}.")
         return value
 
+    def _required_int_header(self, dib: Any, header: int, field_name: str) -> int:
+        value = self._optional_int_header(dib, header)
+        if value is None:
+            raise CreonRequestError(f"CREON response did not include {field_name}.")
+        return value
+
     def _optional_decimal_header(self, dib: Any, header: int) -> Decimal | None:
         value = dib.GetHeaderValue(header)
         if value is None or value == "":
@@ -300,10 +389,53 @@ class CreonClient:
         except (TypeError, ValueError) as exc:
             raise CreonRequestError(f"Invalid CREON integer header {header}: {value}") from exc
 
+    def _required_str_data(self, dib: Any, field: int, row: int, field_name: str) -> str:
+        value = self._optional_str_data(dib, field, row)
+        if not value:
+            raise CreonRequestError(f"CREON account row {row} did not include {field_name}.")
+        return value
+
+    def _optional_str_data(self, dib: Any, field: int, row: int) -> str | None:
+        value = dib.GetDataValue(field, row)
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    def _required_int_data(self, dib: Any, field: int, row: int, field_name: str) -> int:
+        value = self._optional_int_data(dib, field, row)
+        if value is None:
+            raise CreonRequestError(f"CREON account row {row} did not include {field_name}.")
+        return value
+
+    def _optional_int_data(self, dib: Any, field: int, row: int) -> int | None:
+        value = dib.GetDataValue(field, row)
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise CreonRequestError(f"Invalid CREON integer data field {field} row {row}: {value}") from exc
+
+    def _optional_decimal_data(self, dib: Any, field: int, row: int) -> Decimal | None:
+        value = dib.GetDataValue(field, row)
+        if value is None or value == "":
+            return None
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError) as exc:
+            raise CreonRequestError(f"Invalid CREON decimal data field {field} row {row}: {value}") from exc
+
     def _normalize_symbol(self, symbol: str) -> str:
         normalized = symbol.strip().upper()
         if len(normalized) < 2 or len(normalized) > 16:
             raise CreonConfigurationError("Symbol length must be between 2 and 16.")
+        return normalized
+
+    def _normalize_account_symbol(self, symbol: str) -> str:
+        normalized = symbol.strip().upper()
+        if normalized.isdigit() and len(normalized) == 6:
+            return f"A{normalized}"
         return normalized
 
     def _pywin32_available(self) -> bool:

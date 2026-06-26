@@ -103,6 +103,33 @@ Response body: `OrderResponse`
 | `creon_status_code` | integer or null | CREON DIB status code from the order request. |
 | `submitted_at` | datetime or null | Gateway timestamp for the order response. |
 
+### `GET /account`
+
+Returns a CREON account holdings snapshot through `CpTrade.CpTd6033`.
+
+Response body: `AccountSnapshotResponse`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `source` | string | Expected `creon`. |
+| `cash_krw` | decimal or null | Currently null; cash balance mapping is separate from `CpTd6033`. |
+| `positions` | array | Current non-zero CREON holding rows. |
+| `as_of` | datetime or null | Gateway observation timestamp. |
+| `raw_payload` | object or null | CREON object, goods code, page count, and position count. |
+
+Position fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `symbol` | string | Normalized stock symbol. Numeric six-digit CREON codes are returned as `A######`. |
+| `quantity` | integer | Holding quantity. |
+| `name` | string or null | CREON security name. |
+| `avg_price` | decimal or null | Average book price when provided. |
+| `market_price` | decimal or null | Current price. Signed CREON price values are normalized to absolute values. |
+| `available_quantity` | integer or null | Quantity available for sell/order actions when provided. |
+| `market_value` | decimal or null | CREON market value field when provided. |
+| `raw_payload` | object or null | Field index diagnostics. |
+
 ### `GET /orders/{broker_order_id}`
 
 Order status refresh endpoint scaffold. The route exists so the backend can use
@@ -159,6 +186,16 @@ Gateway runtime errors return HTTP 503 with structured detail:
 | `SELL` | `CpTd0311` input value 0 = `1` |
 | `MARKET` | order type code `03` |
 | `LIMIT` | order type code `01` |
+| Account snapshot | `CpTd6033` input value 0 = account number |
+| Account goods code | `CpTd6033` input value 1 = `CREON_GOODS_CODE` |
+| Account request count | `CpTd6033` input value 2 = `50` |
+| Account row count | `CpTd6033` header value 7 |
+| Account symbol | `CpTd6033` data value 12 |
+| Account quantity | `CpTd6033` data value 7 |
+| Account current price | `CpTd6033` data value 9 |
+| Account market value | `CpTd6033` data value 11 |
+| Account available quantity | `CpTd6033` data value 15 |
+| Account average price | `CpTd6033` data value 17 |
 
 ## Safety notes
 

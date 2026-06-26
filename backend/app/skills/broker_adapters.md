@@ -48,6 +48,16 @@ order submission path.
 | `as_of` | datetime or null | Broker/gateway observation timestamp. |
 | `raw_payload` | object or null | Broker-specific diagnostic payload. |
 
+`BrokerAccountSnapshot`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `source` | string | Broker snapshot source. |
+| `cash_krw` | decimal or null | Broker cash balance when the adapter supports it. |
+| `positions` | array | Broker account positions. |
+| `as_of` | datetime or null | Broker/gateway observation timestamp. |
+| `raw_payload` | object or null | Broker-specific diagnostic payload. |
+
 Order status refresh and cancellation:
 
 | Broker mode | Status refresh | Cancel |
@@ -55,6 +65,14 @@ Order status refresh and cancellation:
 | `paper` | Supported for local/demo orders. | Supported for local/demo orders. |
 | `creon` | Not implemented in direct adapter. | Not implemented in direct adapter. |
 | `creon_gateway` | Calls gateway `GET /orders/{broker_order_id}`. Gateway currently returns not-implemented until CREON COM mapping is added. | Calls gateway `POST /orders/{broker_order_id}/cancel`. Gateway currently returns not-implemented until CREON COM mapping is added. |
+
+Account snapshots:
+
+| Broker mode | Account snapshot |
+| --- | --- |
+| `paper` | Account reconciliation uses the application database as the paper ledger. |
+| `creon` | Not implemented in direct adapter. |
+| `creon_gateway` | Calls gateway `GET /account`, which maps CREON holdings through `CpTrade.CpTd6033`. |
 
 ## Live trading requirements
 
@@ -65,7 +83,7 @@ Order status refresh and cancellation:
 | CREON Plus installed and logged in | Direct `creon`; gateway process |
 | `ALLOW_LIVE_TRADING=true` | Direct `creon`; gateway mode |
 | `I_UNDERSTAND_LOSS_RISK=true` | Direct `creon`; gateway mode |
-| `CREON_ACCOUNT_NO` configured | Live order placement |
+| `CREON_ACCOUNT_NO` configured | Live order placement and account snapshot |
 
 ## Safety notes
 

@@ -48,8 +48,11 @@ class QuoteResponse(BaseModel):
 class AccountPositionResponse(BaseModel):
     symbol: str
     quantity: int
+    name: str | None = None
     avg_price: Decimal | None = None
     market_price: Decimal | None = None
+    available_quantity: int | None = None
+    market_value: Decimal | None = None
     raw_payload: dict | None = None
 
 
