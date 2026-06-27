@@ -132,33 +132,38 @@ Position fields:
 
 ### `GET /orders/{broker_order_id}`
 
-Order status refresh endpoint scaffold. The route exists so the backend can use
-one broker lifecycle interface, but the current gateway returns
-`creon_order_status_not_implemented` until the CREON COM status lookup is
-implemented.
+Reads the current trading day's order and execution history from
+`CpTrade.CpTd5341`. The gateway queries per-order records across KRX and NXT,
+finds the numeric CREON order number, and maps broker fields to the application
+lifecycle. It never treats a missing history row as a fill.
 
 Response body shape: `OrderStatusResponse`
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `broker_order_id` | string or null | CREON order number. |
-| `status` | string | Normalized broker status when implemented. |
+| `status` | string | `SUBMITTED`, `PARTIALLY_FILLED`, `FILLED`, `REJECTED`, or `CANCELED`. |
 | `message` | string | Gateway message. |
-| `filled_quantity` | integer or null | Filled quantity when implemented. |
-| `remaining_quantity` | integer or null | Remaining quantity when implemented. |
+| `filled_quantity` | integer or null | Cumulative filled quantity from `CpTd5341`. |
+| `remaining_quantity` | integer or null | Current cancelable/open quantity. |
 | `creon_status_code` | integer or null | CREON status code when available. |
 | `as_of` | datetime or null | Gateway observation timestamp. |
 | `raw_payload` | object or null | CREON-specific diagnostic payload. |
 
 ### `POST /orders/{broker_order_id}/cancel`
 
-Order cancellation endpoint scaffold. The route exists but currently returns
-`creon_order_cancel_not_implemented`. Until CREON COM cancel mapping is
-implemented and tested, live orders must be canceled directly in CREON Plus.
+Validates the original order against today's `CpTd5341` rows, skips terminal or
+zero-remaining orders, and submits `CpTrade.CpTd0314` with cancel quantity `0`
+to cancel all remaining shares. The gateway then reloads `CpTd5341`; a
+successful request that is not yet confirmed remains open and requires another
+status refresh. Rejected cancel requests return
+`creon_order_cancel_rejected` with `retryable=false`.
 
 ## Error payload
 
-Gateway runtime errors return HTTP 503 with structured detail:
+Gateway errors return structured detail. Runtime/provider failures use HTTP
+`503`; invalid order IDs use `400`, missing current-day orders use `404`, and
+broker-rejected cancel requests use `409`.
 
 | Field | Meaning |
 | --- | --- |
@@ -174,7 +179,8 @@ Gateway runtime errors return HTTP 503 with structured detail:
 | Process-wide COM lock | CREON COM calls are serialized to avoid concurrent access to the HTS COM session. |
 | Quote retry only | Quotes are read-only and can retry bounded transient failures. |
 | No automatic order retry | Prevents duplicate live orders when a broker response is ambiguous. |
-| Status/cancel scaffold is explicit | Backend can record lifecycle events without pretending unsupported CREON COM operations succeeded. |
+| Status lookup is current-day only | A missing `CpTd5341` row returns `creon_order_not_found` instead of inventing a terminal state. |
+| Cancel preflight and post-refresh | Prevents canceling unknown/terminal orders and avoids reporting an accepted request as confirmed too early. |
 | Constant-time token comparison | Reduces token comparison timing leakage. |
 | `/ready` separated from `/health` | Liveness remains cheap; readiness can touch CREON COM. |
 
@@ -188,6 +194,10 @@ Gateway runtime errors return HTTP 503 with structured detail:
 | `LIMIT` | order type code `01` |
 | Account snapshot | `CpTd6033` input value 0 = account number |
 | Account goods code | `CpTd6033` input value 1 = `CREON_GOODS_CODE` |
+| Order status source | `CpTd5341`, per-order mode, KRX and NXT, current trading day |
+| Filled quantity | `CpTd5341` data field 9 (total filled quantity) |
+| Remaining quantity | `CpTd5341` data field 22 (amend/cancel available quantity) |
+| Cancel order | `CpTd0314`, original order number plus symbol, quantity `0` for all remaining |
 | Account request count | `CpTd6033` input value 2 = `50` |
 | Account row count | `CpTd6033` header value 7 |
 | Account symbol | `CpTd6033` data value 12 |

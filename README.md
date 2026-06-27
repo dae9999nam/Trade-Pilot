@@ -139,8 +139,8 @@ sequenceDiagram
 | `TradingEngine`      | Persists agent runs and decisions, invokes risk checks, and coordinates order creation or approval.                     |
 | `RiskManager`        | Enforces non-negotiable safety boundaries outside the language model.                                                   |
 | `PaperBroker`        | Provides deterministic paper-mode quote/order behavior for development.                                                 |
-| `CreonGatewayBroker` | Calls the Windows gateway over HTTP for CREON quote and order operations.                                               |
-| `gateway`            | Runs on Windows and owns CREON Plus COM interaction.                                                                    |
+| `CreonGatewayBroker` | Calls the Windows gateway for CREON quotes, accounts, orders, status refresh, and cancellation.                         |
+| `gateway`            | Runs on Windows and owns serialized CREON Plus COM interaction.                                                         |
 | `PostgreSQL`         | Stores application data for users, decisions, agent payloads, orders, and positions.                                    |
 
 ## Runtime Services

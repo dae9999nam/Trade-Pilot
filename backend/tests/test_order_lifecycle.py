@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import create_engine, select
@@ -270,6 +271,10 @@ def test_refresh_submitted_order_can_fill_and_update_paper_position() -> None:
     assert position is not None
     assert position.quantity == 2
     assert refresh_events
+    assert refresh_events[0].event_payload is not None
+    assert refresh_events[0].event_payload["filled_quantity"] == 2
+    assert refresh_events[0].event_payload["remaining_quantity"] == 0
+    assert refresh_events[0].event_payload["as_of"] == "2026-06-27T01:02:03+00:00"
 
 
 class FailingBroker(Broker):
@@ -300,4 +305,7 @@ class SubmittedThenFilledBroker(Broker):
             broker_order_id=broker_order_id,
             status="FILLED",
             message="Filled by test broker.",
+            filled_quantity=2,
+            remaining_quantity=0,
+            as_of=datetime(2026, 6, 27, 1, 2, 3, tzinfo=UTC),
         )

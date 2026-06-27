@@ -186,9 +186,10 @@ Response body: array of `OrderEventView`
 | `creon_gateway` | Backend sends the order to the Windows gateway `/orders` endpoint. |
 
 Broker status refresh and cancel are available through the backend interface.
-`paper` supports both for local/demo flows. `creon_gateway` exposes HTTP routes
-for status/cancel, but the gateway currently returns explicit not-implemented
-errors until CREON COM status/cancel mapping is completed.
+`paper` supports both for local/demo flows. `creon_gateway` refreshes today's
+order history through `CpTrade.CpTd5341` and cancels the remaining quantity
+through `CpTrade.CpTd0314`. The direct `creon` adapter does not yet implement
+status refresh or cancellation.
 
 Broker-returned statuses are normalized before storage: `ACCEPTED` maps to
 `SUBMITTED`, `EXECUTED` maps to `FILLED`, partial-fill variants map to
@@ -208,6 +209,12 @@ to `SUBMISSION_FAILED`.
   candidates.
 - Status refresh is observational. If refresh fails, the order status remains
   unchanged and the failure is stored as an event.
+- CREON gateway status lookup only covers the current trading day's
+  `CpTd5341` history. A missing order is an error and must not be inferred as
+  filled or canceled.
+- A CREON cancel request first validates the order's symbol and remaining
+  quantity, submits `CpTd0314` with cancel quantity `0` (all remaining), and
+  refreshes status. Do not automatically retry a rejected or ambiguous cancel.
 - In live modes, inspect `order_events`, gateway request IDs, and broker account
   state before retrying `SUBMISSION_FAILED`; ambiguous network failures can
   create duplicate-order risk.

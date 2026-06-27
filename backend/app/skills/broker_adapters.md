@@ -64,7 +64,7 @@ Order status refresh and cancellation:
 | --- | --- | --- |
 | `paper` | Supported for local/demo orders. | Supported for local/demo orders. |
 | `creon` | Not implemented in direct adapter. | Not implemented in direct adapter. |
-| `creon_gateway` | Calls gateway `GET /orders/{broker_order_id}`. Gateway currently returns not-implemented until CREON COM mapping is added. | Calls gateway `POST /orders/{broker_order_id}/cancel`. Gateway currently returns not-implemented until CREON COM mapping is added. |
+| `creon_gateway` | Calls gateway `GET /orders/{broker_order_id}` backed by today's `CpTd5341` history. | Calls gateway `POST /orders/{broker_order_id}/cancel`, which validates `CpTd5341`, submits `CpTd0314`, and refreshes status. |
 
 Account snapshots:
 

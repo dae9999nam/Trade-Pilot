@@ -20,7 +20,7 @@ from schemas import (
 
 logger = logging.getLogger("trade_pilot.creon_gateway")
 
-app = FastAPI(title="Trade-pilot CREON Gateway", version="0.2.0")
+app = FastAPI(title="Trade-pilot CREON Gateway", version="0.3.0")
 client = CreonClient()
 
 
@@ -43,7 +43,7 @@ async def creon_gateway_error_handler(request: Request, exc: CreonGatewayError) 
         retryable=exc.retryable,
         request_id=request_id,
     )
-    return JSONResponse(status_code=503, content={"detail": detail.model_dump()})
+    return JSONResponse(status_code=exc.status_code, content={"detail": detail.model_dump()})
 
 
 def require_token(x_trade_pilot_token: str | None = Header(default=None)) -> None:

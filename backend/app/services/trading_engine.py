@@ -299,7 +299,13 @@ class TradingEngine:
             event_type="broker_cancel_result",
             message=message,
             broker_order_id=result.broker_order_id,
-            event_payload=self._broker_status_payload(result.status, result.raw_payload),
+            event_payload=self._broker_status_payload(
+                result.status,
+                result.raw_payload,
+                filled_quantity=result.filled_quantity,
+                remaining_quantity=result.remaining_quantity,
+                as_of=result.as_of,
+            ),
         )
         self.db.commit()
         self.db.refresh(order)
@@ -350,7 +356,13 @@ class TradingEngine:
             event_type="broker_status_refreshed",
             message=message,
             broker_order_id=result.broker_order_id,
-            event_payload=self._broker_status_payload(result.status, result.raw_payload),
+            event_payload=self._broker_status_payload(
+                result.status,
+                result.raw_payload,
+                filled_quantity=result.filled_quantity,
+                remaining_quantity=result.remaining_quantity,
+                as_of=result.as_of,
+            ),
         )
 
         if (
@@ -477,8 +489,18 @@ class TradingEngine:
         self,
         broker_status: str,
         raw_payload: dict | None = None,
+        *,
+        filled_quantity: int | None = None,
+        remaining_quantity: int | None = None,
+        as_of: object = None,
     ) -> dict[str, object]:
         payload: dict[str, object] = {"broker_status": broker_status}
+        if filled_quantity is not None:
+            payload["filled_quantity"] = filled_quantity
+        if remaining_quantity is not None:
+            payload["remaining_quantity"] = remaining_quantity
+        if as_of is not None:
+            payload["as_of"] = as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)
         if raw_payload:
             payload["raw_payload"] = raw_payload
         return payload

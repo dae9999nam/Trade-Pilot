@@ -76,7 +76,7 @@ class CreonGatewayBroker(Broker):
             message=data["message"],
             filled_quantity=data.get("filled_quantity"),
             remaining_quantity=data.get("remaining_quantity"),
-            as_of=data.get("as_of"),
+            as_of=self._parse_datetime(data.get("as_of")),
             raw_payload=data.get("raw_payload"),
         )
 
@@ -90,7 +90,7 @@ class CreonGatewayBroker(Broker):
             message=data["message"],
             filled_quantity=data.get("filled_quantity"),
             remaining_quantity=data.get("remaining_quantity"),
-            as_of=data.get("as_of"),
+            as_of=self._parse_datetime(data.get("as_of")),
             raw_payload=data.get("raw_payload"),
         )
 
